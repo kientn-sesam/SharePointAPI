@@ -1,0 +1,8 @@
+helpers.json
+.dockerignore
+.env
+.vs
+.vscode
+bin
+obj
+Properties

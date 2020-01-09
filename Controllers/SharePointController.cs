@@ -25,6 +25,7 @@ namespace SharePointAPI.Controllers
         public SharePointController()
         {
             if(Environment.GetEnvironmentVariable("baseurl") != null){
+                Console.WriteLine("Baseline url: " + Environment.GetEnvironmentVariable("baseurl"));
                 _baseurl = Environment.GetEnvironmentVariable("baseurl");
                 _username = Environment.GetEnvironmentVariable("username");
                 _password = Environment.GetEnvironmentVariable("password");
@@ -47,12 +48,24 @@ namespace SharePointAPI.Controllers
         [HttpGet]
         [Produces("application/json")]
         [Consumes("application/json")]
-        public async Task<IActionResult> DocumentsWithFields()
+
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     GET /api/sharepoint/documentswithfields?site=sitename&list=listname
+        ///     
+        /// </remarks>
+        /// <param name="param">New document parameters</param>
+        /// <returns></returns>
+        public async Task<IActionResult> DocumentsWithFields([FromQuery(Name = "site")] string sitename,[FromQuery(Name = "list")] string listname)
         {
             //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
             var SPDocs = new List<JObject>();
-            string site = "Sesamsitewithdocumentsets";
-            string url = _baseurl + "sites/" + site;
+            
+            string url = _baseurl + "sites/" + sitename;
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
@@ -63,7 +76,7 @@ namespace SharePointAPI.Controllers
                 cc.Load(Lists);
                 await cc.ExecuteQueryAsync();
 
-                List list = web.Lists.GetByTitle("Documents");
+                List list = web.Lists.GetByTitle(listname);
                 cc.Load(list, l => l.Fields);
                 await cc.ExecuteQueryAsync();
                 List<string> fieldNames = new List<string>();
@@ -71,7 +84,11 @@ namespace SharePointAPI.Controllers
 
                 foreach (var tmpfield in list.Fields)
                 {
-                    if(!tmpfield.FromBaseType && tmpfield.Hidden == false){
+                    if((!tmpfield.FromBaseType && tmpfield.Hidden == false)){
+                        if (tmpfield.InternalName.Equals("ContentType"))
+                        {
+                            continue;
+                        }
                         Console.WriteLine(tmpfield.InternalName);
                         
                         fieldNames.Add(tmpfield.InternalName);
@@ -111,9 +128,13 @@ namespace SharePointAPI.Controllers
                         json.Add(new JProperty("uri", file.LinkingUri));
                         foreach (var fieldname in fieldNames)
                         {
-                            
-                            json.Add(new JProperty(fieldname, item[fieldname]));
                             Console.WriteLine("Name: " + fieldname + "Value: " + item[fieldname]);
+                            if (item[fieldname] != null)
+                            {
+                                json.Add(new JProperty(fieldname, item[fieldname]));
+                                
+                                Console.WriteLine("Name: " + fieldname + "Value: " + item[fieldname]);
+                            }
                         }
                         
                         SPDocs.Add(json);
@@ -143,14 +164,14 @@ namespace SharePointAPI.Controllers
         /// <remarks>
         /// Sample request:
         ///
-        ///     POST /api/sharepoint/newdoc
+        ///     POST /api/sharepoint/document
         ///     {
-        ///         "ListName":"Documents",
-	    ///         "FileUrl":"https://sesam.io/images/Cyan.svg",
-	    ///         "FolderName":"My first document set",
-        ///         "Site": "Sesamsitewithdocumentsets",
-        ///         "Filename": "Cyan.svg",
-	    ///         "Fields":{
+        ///         "list":"Documents",
+	    ///         "file_url":"https://sesam.io/images/Cyan.svg",
+	    ///         "foldername":"My first document set",
+        ///         "site": "Sesamsitewithdocumentsets",
+        ///         "filename": "Cyan.svg",
+	    ///         "fields":{
 	    ///         		"BLAD":"4",
 	    ///         		"BESKRIVELSE":"Beskrivelse test",
 	    ///         		"DOC_NO": "12345",
@@ -164,10 +185,10 @@ namespace SharePointAPI.Controllers
         /// <response code="201">Returns success with the new site title</response>
         /// <response code="404">Returns resource not found if the ID of the new site is empty</response>
         /// <response code="500">If the input parameter is null or empty</response>
-        public async Task<IActionResult> newdoc([FromBody] JObject doc)
+        public async Task<IActionResult> NewDocument([FromBody] JObject doc)
         {
 
-            string site = doc["Site"].ToString();
+            string site = doc["site"].ToString();
             string url = _baseurl + "sites/" + site;
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try{
@@ -177,33 +198,25 @@ namespace SharePointAPI.Controllers
                 var lists = web.Lists;
                 cc.Load(lists);
                 await cc.ExecuteQueryAsync();
-                Console.WriteLine(doc["ListName"].ToString());
-                List list = web.Lists.GetByTitle(doc["ListName"].ToString());
+                
+                List list = web.Lists.GetByTitle(doc["list"].ToString());
 
                 FileCreationInformation newFile = new FileCreationInformation();
                 //byte[] imageBytes = webClient.DownloadData("https://sesam.io/images/howitworks.jpg");
                 using (var webClient = new WebClient()){
-                    byte[] imageBytes = webClient.DownloadData(doc["FileUrl"].ToString());
+                    byte[] imageBytes = webClient.DownloadData(doc["file_url"].ToString());
                     newFile.Content = imageBytes;
                 }
-                //Regex match /\w+\.\w+$/g
-                /*Regex rg = new Regex(@"\w+\.\w+$"); 
-                var match = rg.Match(doc["FileUrl"].ToString());
-                if(match.Success){
-                    //Document filename
-                    Console.WriteLine(newFile.Url);
-                    newFile.Url = match.Value;    
-                }*/
 
-                newFile.Url = doc["Filename"].ToString();
+                newFile.Url = doc["filename"].ToString();
                 
                 //Folder folder = list.RootFolder.Folders.GetByUrl("My first document set");
-                Folder folder = list.RootFolder.Folders.GetByUrl(doc["FolderName"].ToString());
+                Folder folder = list.RootFolder.Folders.GetByUrl(doc["foldername"].ToString());
                 File uploadFile = folder.Files.Add(newFile);
                 
                 ListItem item = uploadFile.ListItemAllFields;
                 
-                JObject fields = doc["Fields"] as JObject;
+                JObject fields = doc["fields"] as JObject;
                 //Add metadata
                 foreach (KeyValuePair<string, JToken> field in fields)
                 {
@@ -243,5 +256,119 @@ namespace SharePointAPI.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, ex);
             }
         }
+
+        /// <summary>
+        /// Delete a site
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     DELETE /api/sharepoint/deletesite
+        ///     {
+        ///        "site": <"site name">
+        ///     }
+        /// </remarks>
+        /// <param name="url">The site url to delete</param>
+        /// <returns></returns>
+        /// <response code="204">Returns success with No-content result</response>
+        /// <response code="500">If the input parameter is null or empty</response>
+        [HttpDelete("{url}")]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        [ProducesResponseType((int)HttpStatusCode.NotFound)]
+        [ProducesResponseType((int)HttpStatusCode.RequestTimeout)]
+        [ProducesResponseType((int)HttpStatusCode.NoContent)]
+        [ProducesResponseType((int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> DeleteSite([FromBody] string site)
+        {
+    
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try{    
+                //Web web = context.Web;
+                //context.Load(web);
+                //context.Credentials = new NetworkCredential("khteh", "", "dddevops.onmicrosoft.com");
+                Web web = cc.Web;
+                // Retrieve the new web information. 
+                cc.Load(web);
+                //context.Load(newWeb);
+                await cc.ExecuteQueryAsync();
+                web.DeleteObject();
+                await cc.ExecuteQueryAsync();
+                return new NoContentResult();
+            } catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ex);
+            }
+        }
+        
+        /// <summary>
+        /// Create a document site
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/documentset
+        ///     {
+        ///         "site": <"site name">,
+        ///         "list" :<"list name">,
+        ///         "sitecontent" : <"site content name">,
+        ///         "documentset" : <"name of the new document set">,
+        ///      }
+        /// </remarks>
+        /// <returns></returns>
+        /// <response code="201">Returns success with the new site title</response>
+        /// <response code="404">Returns resource not found if the ID of the new site is empty</response>
+        /// <response code="500">If the input parameter is null or empty</response>
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        [ProducesResponseType((int)HttpStatusCode.NotFound)]
+        [ProducesResponseType((int)HttpStatusCode.RequestTimeout)]
+        [ProducesResponseType((int)HttpStatusCode.Created)]
+        [ProducesResponseType((int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> DocumentSet([FromBody] JObject param)
+        {
+            string url = _baseurl + "sites/" + param["site"];
+
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try{
+                Web web = cc.Web;
+                cc.Load(web);
+                // Example: List list = cc.Web.Lists.GetByTitle("Documents");
+                List list = cc.Web.Lists.GetByTitle(param["list"].ToString());
+                ContentTypeCollection listContentTypes = list.ContentTypes;
+                cc.Load(listContentTypes, types => types.Include(type => type.Id, type => type.Name, type => type.Parent));
+                
+                string SiteContentName = param["sitecontent"].ToString();
+                // Example: var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == "document set 2"));
+                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == SiteContentName));
+                
+                await cc.ExecuteQueryAsync();
+
+                ContentType targetDocumentSetContentType = result.FirstOrDefault();
+                ListItemCreationInformation newItemInfo = new ListItemCreationInformation();
+
+                newItemInfo.UnderlyingObjectType = FileSystemObjectType.Folder;
+                //newItemInfo.LeafName = "Document Set Kien2";
+                newItemInfo.LeafName = param["documentset"].ToString();
+                
+                //newItemInfo.FolderUrl = list.RootFolder.ServerRelativeUrl.ToString();
+                
+                ListItem newListItem = list.AddItem(newItemInfo);
+                newListItem["ContentTypeId"] = targetDocumentSetContentType.Id.ToString();
+                newListItem.Update();
+                list.Update();
+                await cc.ExecuteQueryAsync();
+
+                return new NoContentResult();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, ex);
+            }
+        }
+
+
     }
 }
