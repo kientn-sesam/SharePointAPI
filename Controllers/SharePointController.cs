@@ -7,8 +7,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.Taxonomy;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Text.RegularExpressions;
 
 using SharePointAPI.Middleware;
 
@@ -32,7 +34,7 @@ namespace SharePointAPI.Controllers
 
             }
             else{
-                using (var file = System.IO.File.OpenText("helpers.json"))
+                using (var file = System.IO.File.OpenText("test.json"))
                 {
                     var reader = new JsonTextReader(file);
                     var jObject = JObject.Load(reader);
@@ -119,21 +121,38 @@ namespace SharePointAPI.Controllers
                     {
                         
                         ListItem item = file.ListItemAllFields;
+                        //test
                         cc.Load(item);
                         await cc.ExecuteQueryAsync();
-                        
+
                         var json = new JObject();
                         json.Add(new JProperty("filename", file.Name));
                         json.Add(new JProperty("folder", folder.Name));
                         json.Add(new JProperty("uri", file.LinkingUri));
                         foreach (var fieldname in fieldNames)
                         {
-                            Console.WriteLine("Name: " + fieldname + "Value: " + item[fieldname]);
+                            
                             if (item[fieldname] != null)
                             {
-                                json.Add(new JProperty(fieldname, item[fieldname]));
-                                
-                                Console.WriteLine("Name: " + fieldname + "Value: " + item[fieldname]);
+                                Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
+                                var match = rg.Match(item[fieldname].ToString());
+                                if(match.Success){
+                                    if(fieldname.Equals("SPORResponsible") == true){
+                                        FieldUserValue fieldUserValue = item[fieldname] as FieldUserValue;
+                                        json.Add(new JProperty(fieldname, fieldUserValue.Email));
+
+                                    }
+                                    else
+                                    {
+                                        TaxonomyFieldValue taxonomyFieldValue = item[fieldname] as TaxonomyFieldValue;
+                                        json.Add(new JProperty(fieldname, taxonomyFieldValue.Label));
+                                    }
+                                }
+                                else
+                                {
+                                    json.Add(new JProperty(fieldname, item[fieldname]));  
+                                }
+
                             }
                         }
                         
@@ -172,10 +191,16 @@ namespace SharePointAPI.Controllers
         ///         "site": "Sesamsitewithdocumentsets",
         ///         "filename": "Cyan.svg",
 	    ///         "fields":{
-	    ///         		"BLAD":"4",
-	    ///         		"BESKRIVELSE":"Beskrivelse test",
-	    ///         		"DOC_NO": "12345",
-	    ///         		"DATO":"2019-11-12 00:00:00"
+	    ///         		"SPORProjectNameValue":{
+         ///                    "label": "Skjerka nytt aggregat - 8026-3",
+         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+         ///                    "wssid": 25
+         ///                  },
+	    ///         		"SPORConstruction":{
+         ///                    "label": "Skjerka nytt aggregat - 8026-3",
+         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+         ///                    "wssid": 25
+         ///                  }
 	    ///         }
         ///         
         ///     }
@@ -202,9 +227,10 @@ namespace SharePointAPI.Controllers
                 List list = web.Lists.GetByTitle(doc["list"].ToString());
 
                 FileCreationInformation newFile = new FileCreationInformation();
-                //byte[] imageBytes = webClient.DownloadData("https://sesam.io/images/howitworks.jpg");
+                
                 using (var webClient = new WebClient()){
                     byte[] imageBytes = webClient.DownloadData(doc["file_url"].ToString());
+                    newFile.Overwrite = true;
                     newFile.Content = imageBytes;
                 }
 
@@ -215,30 +241,43 @@ namespace SharePointAPI.Controllers
                 File uploadFile = folder.Files.Add(newFile);
                 
                 ListItem item = uploadFile.ListItemAllFields;
-                
-                JObject fields = doc["fields"] as JObject;
+                cc.Load(item);
+
+
+                JObject inputFields = doc["fields"] as JObject;
+
+                item["Title"] = "Sesam Test Title";
+                item.Update();
+
                 //Add metadata
-                foreach (KeyValuePair<string, JToken> field in fields)
-                {
-                    string fieldValue = (string)field.Value;
-                
-                    if (int.TryParse(fieldValue, out int n)){
-                        item[field.Key] = n;
-                    }
-                    else if(DateTime.TryParse(fieldValue, out DateTime dt))
-                    {
-                        item[field.Key] = dt;
-                    }
-                    else
-                    {
-                        item[field.Key] = fieldValue;
-                    }
+                foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                {   
+                    var fields = list.Fields;
+                    cc.Load(fields);
+                    
+                    var field = fields.GetByInternalNameOrTitle(inputField.Key);
+                    cc.Load(field);
+                    await cc.ExecuteQueryAsync();
+                    //var clientRuntimeContext = item.Context;
+                    var taxKeywordField = cc.CastTo<TaxonomyField>(field);                  
+                    TaxonomyFieldValue termValue = new TaxonomyFieldValue();
+                    
+                    JObject taxObj = inputField.Value as JObject;
+
+                    termValue.Label = taxObj["Label"].ToString();
+                    termValue.TermGuid = taxObj["TermGuid"].ToString();
+                    termValue.WssId = (int)taxObj["WssId"];
+                    
+                    
+                    taxKeywordField.SetFieldValueByValue(item, termValue);
+                    Console.WriteLine(taxKeywordField);
+                    taxKeywordField.Update();
                     
                     
                 }
-                item.SystemUpdate();
                 
-
+                
+                
                 cc.Load(list);
                 cc.Load(uploadFile);
                 await cc.ExecuteQueryAsync();
@@ -366,6 +405,125 @@ namespace SharePointAPI.Controllers
             catch (Exception ex)
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, ex);
+            }
+        }
+
+        /// <summary>
+        /// update metadata
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/updatemetadata
+        ///     {
+        ///     	"ListName":"Documents",
+        ///     	"FileName":"Cyan.svg",
+        ///     	"FolderName":"My first document set",
+        ///     	"Fields":{
+        ///     			"BLAD":"9",
+        ///     			"BESKRIVELSE":"Beskrivelse updated",
+        ///     			"DOC_NO": "123433334455",
+        ///     			"DATO":"2020-01-01 04:00:00"
+        ///     
+        ///     	}
+        ///     }
+        /// </remarks>
+        /// <returns></returns>
+        /// <response code="201"></response>
+        /// <response code="404"></response>
+        /// <response code="500">If the input parameter is null or empty</response>
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        [ProducesResponseType((int)HttpStatusCode.NotFound)]
+        [ProducesResponseType((int)HttpStatusCode.RequestTimeout)]
+        [ProducesResponseType((int)HttpStatusCode.Created)]
+        [ProducesResponseType((int)HttpStatusCode.InternalServerError)]
+        public async Task<IActionResult> UpdateMetadata([FromBody] JObject param){
+            string site = param["site"].ToString();
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                Web web = cc.Web;
+                await cc.ExecuteQueryAsync();
+                cc.Load(web);                
+                var lists = web.Lists;
+                cc.Load(lists);
+                await cc.ExecuteQueryAsync();
+                
+                List list = web.Lists.GetByTitle(param["list"].ToString());
+
+                Folder folder = list.RootFolder.Folders.GetByUrl(param["foldername"].ToString());
+                cc.Load(folder);
+                await cc.ExecuteQueryAsync();
+                
+                var items = folder.Files;
+                //cc.Load(items);
+                //await cc.ExecuteQueryAsync();
+                
+                //await cc.ExecuteQueryAsync();
+                var file = items.GetByUrl(param["filename"].ToString());
+                
+                cc.Load(file);
+                
+                ListItem item = file.ListItemAllFields;
+
+                cc.Load(item);
+                await cc.ExecuteQueryAsync();
+
+                
+                
+                JObject inputFields = param["fields"] as JObject;
+                //update metadata
+                foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                {
+                    JObject taxObj = inputField.Value as JObject;
+                    //string fieldValue = (string)inputField.Value;
+
+                    var clientRuntimeContext = item.Context;
+                    var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                    cc.Load(field);
+                    var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+                    cc.Load(taxKeywordField);
+                    await cc.ExecuteQueryAsync();
+
+                    TaxonomyFieldValue termValue = new TaxonomyFieldValue();
+                    termValue.Label = taxObj["Label"].ToString();
+                    termValue.TermGuid = taxObj["TermGuid"].ToString();
+                    termValue.WssId = (int)taxObj["WssId"];
+
+                    taxKeywordField.SetFieldValueByValue(item, termValue);
+                    Console.WriteLine(taxKeywordField);
+                    taxKeywordField.Update();
+                    ///if (int.TryParse(fieldValue, out int n)){
+                    ///    item[inputField.Key] = n;
+                    ///}
+                    ///else if(DateTime.TryParse(fieldValue, out DateTime dt))
+                    ///{
+                    ///    item[inputField.Key] = dt;
+                    ///}
+                    ///else
+                    ///{
+                    ///    item[inputField.Key] = fieldValue;
+                    ///}
+                    
+                }
+                
+                item.SystemUpdate();
+                
+                cc.Load(file);
+                
+                await cc.ExecuteQueryAsync();
+
+                Console.WriteLine("Update metadata SUCCESS!");
+
+                return new NoContentResult();
+            }
+            catch (System.Exception e)
+            {
+                Console.WriteLine(e.Message);
+                throw;
             }
         }
 
