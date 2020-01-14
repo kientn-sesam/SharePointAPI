@@ -249,29 +249,49 @@ namespace SharePointAPI.Controllers
                 item["Title"] = "Sesam Test Title";
                 item.Update();
 
+                FieldCollection fields = list.Fields;
+                cc.Load(fields);
+                cc.ExecuteQuery();
+
+                
                 //Add metadata
                 foreach (KeyValuePair<string, JToken> inputField in inputFields)
                 {   
-                    var fields = list.Fields;
-                    cc.Load(fields);
                     
                     var field = fields.GetByInternalNameOrTitle(inputField.Key);
                     cc.Load(field);
                     await cc.ExecuteQueryAsync();
-                    //var clientRuntimeContext = item.Context;
+                    var clientRuntimeContext = item.Context;
                     var taxKeywordField = cc.CastTo<TaxonomyField>(field);                  
-                    TaxonomyFieldValue termValue = new TaxonomyFieldValue();
-                    
                     JObject taxObj = inputField.Value as JObject;
+                    //TaxonomyField field = cc.CastTo<TaxonomyField>(fields.GetByInternalNameOrTitle(inputField.Key));
+                    
+                    //cc.Load(field);
+                    //cc.ExecuteQuery();
 
-                    termValue.Label = taxObj["Label"].ToString();
-                    termValue.TermGuid = taxObj["TermGuid"].ToString();
-                    termValue.WssId = (int)taxObj["WssId"];
+                    Guid _id = taxKeywordField.TermSetId;
+                    string _termID = TermHelper.GetTermIdByName(cc, taxObj["Label"].ToString(), _id);
+
+                    
+                    //TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                    //{
+                    //    Label = taxObj["Label"].ToString(),
+                    //    TermGuid = _termID,
+                    //    WssId = -1
+                    //    //WssId = (int)taxObj["WssId"]
+                    //};
+                    //
+                    //
+                    //taxKeywordField.SetFieldValueByValue(item, termValue);
+                    
+                    // This method works but not practical
+                    string termValue = "-1;#" + taxObj["Label"].ToString() + "|" + taxObj["TermGuid"].ToString();
+                    item[inputField.Key] = termValue;
                     
                     
-                    taxKeywordField.SetFieldValueByValue(item, termValue);
-                    Console.WriteLine(taxKeywordField);
-                    taxKeywordField.Update();
+                    item.Update();
+
+                    await cc.ExecuteQueryAsync();
                     
                     
                 }
@@ -295,6 +315,8 @@ namespace SharePointAPI.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, ex);
             }
         }
+
+         
 
         /// <summary>
         /// Delete a site

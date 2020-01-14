@@ -20496,7 +20496,7 @@
         }
       }
     ],
-    "CSharpLanguageVersion": 703
+    "CSharpLanguageVersion": 800
   },
   "RootNamespace": "SharePointAPI",
   "Documents": [],
