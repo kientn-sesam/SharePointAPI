@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Net;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -185,25 +186,31 @@ namespace SharePointAPI.Controllers
         ///
         ///     POST /api/sharepoint/document
         ///     {
-        ///         "list":"Documents",
-	    ///         "file_url":"https://sesam.io/images/Cyan.svg",
-	    ///         "foldername":"My first document set",
-        ///         "site": "Sesamsitewithdocumentsets",
-        ///         "filename": "Cyan.svg",
-	    ///         "fields":{
-	    ///         		"SPORProjectNameValue":{
-         ///                    "label": "Skjerka nytt aggregat - 8026-3",
-         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
-         ///                    "wssid": 25
-         ///                  },
-	    ///         		"SPORConstruction":{
-         ///                    "label": "Skjerka nytt aggregat - 8026-3",
-         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
-         ///                    "wssid": 25
-         ///                  }
-	    ///         }
-        ///         
-        ///     }
+        ///        "list":"Dokumentasjon",
+        ///        "file_url":"https://www.bring.no/radgivning/sende-noe/adressetjenester/postnummer/_/attachment/download/c0300459-6555-4833-b42c-4b16496b7cc0:1127fa77303a0347c45d609069d1483b429a36c0/Postnummerregister-Excel.xlsx",
+        ///        "foldername":"Lan",
+        ///        "site": "sporaevk",
+        ///        "filename": "Postnummerregister-Excel.xlsx",
+        ///        "sitecontent":"SPOR Dokumentsett",
+        ///        "documentsetfields":{
+        ///        	"SPORStatus" : {
+        ///        		"label":"Under arbeid", 
+        ///        		"type":"Text"
+        ///        		
+        ///        	},
+        ///        	"SPORResponsible" : {
+        ///        		"label":"Nina.Torjesen@ae.no", 
+        ///        		"type" : "User"
+        ///        		
+        ///        	}
+        ///        },
+        ///        "fields":{
+        ///        		"SPORProjectName": "Smeland, nye kjølere T1",
+        ///                 "Title": "Testing",
+        ///                 "SPORResponsible": "Nina.Torjesen@ae.no"
+        ///        }
+        ///        
+        ///     }    
         /// </remarks>
         /// <param name="param">New document parameters</param>
         /// <returns></returns>
@@ -212,90 +219,43 @@ namespace SharePointAPI.Controllers
         /// <response code="500">If the input parameter is null or empty</response>
         public async Task<IActionResult> NewDocument([FromBody] JObject doc)
         {
+            
 
             string site = doc["site"].ToString();
             string url = _baseurl + "sites/" + site;
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try{
-                
-                Web web = cc.Web;
-                cc.Load(web);
-                var lists = web.Lists;
-                cc.Load(lists);
-                await cc.ExecuteQueryAsync();
-                
-                List list = web.Lists.GetByTitle(doc["list"].ToString());
 
-                FileCreationInformation newFile = new FileCreationInformation();
-                
-                using (var webClient = new WebClient()){
-                    byte[] imageBytes = webClient.DownloadData(doc["file_url"].ToString());
-                    newFile.Overwrite = true;
-                    newFile.Content = imageBytes;
+                List list = SharePointHelper.GetListItemByTitle(cc, doc["list"].ToString());
+
+                FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString());
+                File uploadFile;
+                if (SharePointHelper.FolderJObjectExist(doc) == false)
+                {
+                    uploadFile = list.RootFolder.Files.Add(newFile);
+                    Console.WriteLine("folder missing!!!!");
+                }
+                else{
+                    //Folder folder = list.RootFolder.Folders.GetByUrl("My first document set");
+                    Folder folder = SharePointHelper.GetFolder(cc, list, doc["foldername"].ToString());
+                    if (folder == null)
+                    {
+                        JObject documentSetFields = doc["documentsetfields"] as JObject;
+                        folder = SharePointHelper.CreateFolder(cc, list, doc["sitecontent"].ToString(), doc["foldername"].ToString(), documentSetFields);
+                    }
+
+                    uploadFile = folder.Files.Add(newFile);
                 }
 
-                newFile.Url = doc["filename"].ToString();
-                
-                //Folder folder = list.RootFolder.Folders.GetByUrl("My first document set");
-                Folder folder = list.RootFolder.Folders.GetByUrl(doc["foldername"].ToString());
-                File uploadFile = folder.Files.Add(newFile);
-                
                 ListItem item = uploadFile.ListItemAllFields;
                 cc.Load(item);
 
+                FieldCollection fields = SharePointHelper.GetFields(cc, list);
 
+                
                 JObject inputFields = doc["fields"] as JObject;
-
-                item["Title"] = "Sesam Test Title";
-                item.Update();
-
-                FieldCollection fields = list.Fields;
-                cc.Load(fields);
-                cc.ExecuteQuery();
-
-                
                 //Add metadata
-                foreach (KeyValuePair<string, JToken> inputField in inputFields)
-                {   
-                    
-                    var field = fields.GetByInternalNameOrTitle(inputField.Key);
-                    cc.Load(field);
-                    await cc.ExecuteQueryAsync();
-                    var clientRuntimeContext = item.Context;
-                    var taxKeywordField = cc.CastTo<TaxonomyField>(field);                  
-                    JObject taxObj = inputField.Value as JObject;
-                    //TaxonomyField field = cc.CastTo<TaxonomyField>(fields.GetByInternalNameOrTitle(inputField.Key));
-                    
-                    //cc.Load(field);
-                    //cc.ExecuteQuery();
-
-                    Guid _id = taxKeywordField.TermSetId;
-                    string _termID = TermHelper.GetTermIdByName(cc, taxObj["Label"].ToString(), _id);
-
-                    
-                    //TaxonomyFieldValue termValue = new TaxonomyFieldValue()
-                    //{
-                    //    Label = taxObj["Label"].ToString(),
-                    //    TermGuid = _termID,
-                    //    WssId = -1
-                    //    //WssId = (int)taxObj["WssId"]
-                    //};
-                    //
-                    //
-                    //taxKeywordField.SetFieldValueByValue(item, termValue);
-                    
-                    // This method works but not practical
-                    string termValue = "-1;#" + taxObj["Label"].ToString() + "|" + taxObj["TermGuid"].ToString();
-                    item[inputField.Key] = termValue;
-                    
-                    
-                    item.Update();
-
-                    await cc.ExecuteQueryAsync();
-                    
-                    
-                }
-                
+                SharePointHelper.SetMetadataFields(cc, inputFields, fields, item);                
                 
                 
                 cc.Load(list);
@@ -303,9 +263,7 @@ namespace SharePointAPI.Controllers
                 await cc.ExecuteQueryAsync();
 
                 Console.WriteLine("Done");
-
                 return new NoContentResult();
-
 
 
             }
@@ -548,6 +506,113 @@ namespace SharePointAPI.Controllers
                 throw;
             }
         }
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/document
+        ///     {
+        ///         "list":"Documents",
+	    ///         "file_url":"https://sesam.io/images/Cyan.svg",
+	    ///         "foldername":"My first document set",
+        ///         "site": "Sesamsitewithdocumentsets",
+        ///         "filename": "Cyan.svg",
+	    ///         "fields":{
+	    ///         		"SPORProjectNameValue":{
+         ///                    "label": "Skjerka nytt aggregat - 8026-3",
+         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+         ///                    "wssid": 25
+         ///                  },
+	    ///         		"SPORConstruction":{
+         ///                    "label": "Skjerka nytt aggregat - 8026-3",
+         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+         ///                    "wssid": 25
+         ///                  }
+	    ///         }
+        ///         
+        ///     }
+        /// </remarks>
+        /// <param name="param">New document parameters</param>
+        /// <returns></returns>
+        /// <response code="201">Returns success with the new site title</response>
+        /// <response code="404">Returns resource not found if the ID of the new site is empty</response>
+        /// <response code="500">If the input parameter is null or empty</response>
+        public async Task<IActionResult> UpMetadata([FromBody] JObject doc)
+        {
+
+            string site = doc["site"].ToString();
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try{
+                
+                Web web = cc.Web;
+                cc.Load(web);
+                var lists = web.Lists;
+                cc.Load(lists);
+                await cc.ExecuteQueryAsync();
+                
+                List list = web.Lists.GetByTitle(doc["list"].ToString());
+
+                Folder folder = list.RootFolder.Folders.GetByUrl(doc["foldername"].ToString());
+                ListItem listItem = folder.ListItemAllFields;
+                cc.Load(listItem);
+                cc.ExecuteQuery();
+
+                var clientRuntimeContext = listItem.Context;
+
+
+                JObject inputFields = doc["fields"] as JObject;
+                foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                {
+                    var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                    cc.Load(field);
+                    cc.ExecuteQuery();
+                    var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+
+                    
+                    JObject taxObj = inputField.Value as JObject;
+
+                    Guid _id = taxKeywordField.TermSetId;
+                    string _termID = TermHelper.GetTermIdByName(cc, taxObj["Label"].ToString(), _id);
+
+                    TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                    {
+                        Label = taxObj["Label"].ToString(),
+                        TermGuid = _termID,
+                        //WssId = -1
+                        //WssId = (int)taxObj["WssId"]
+                    };
+                    
+                    
+                    taxKeywordField.SetFieldValueByValue(listItem, termValue);
+                    taxKeywordField.Update();
+                    //string termValue = "42;#" + taxObj["Label"].ToString() + "|" + taxObj["TermGuid"].ToString();
+                    //listItem[inputField.Key] = termValue;
+                    
+
+                }
+                listItem.Update();
+                cc.Load(listItem);
+                await cc.ExecuteQueryAsync();
+                
+                return new NoContentResult();
+
+
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error message: " + ex);
+                return StatusCode(StatusCodes.Status500InternalServerError, ex);
+            }
+        }
+
 
 
     }
