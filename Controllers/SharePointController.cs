@@ -66,103 +66,21 @@ namespace SharePointAPI.Controllers
         public async Task<IActionResult> DocumentsWithFields([FromQuery(Name = "site")] string sitename,[FromQuery(Name = "list")] string listname)
         {
             //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
-            var SPDocs = new List<JObject>();
             
             string url = _baseurl + "sites/" + sitename;
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
                 
-                Web web = cc.Web;
-                cc.Load(web);
-                var Lists = web.Lists;
-                cc.Load(Lists);
-                await cc.ExecuteQueryAsync();
-
-                List list = web.Lists.GetByTitle(listname);
-                cc.Load(list, l => l.Fields);
-                await cc.ExecuteQueryAsync();
-                List<string> fieldNames = new List<string>();
-   
-
-                foreach (var tmpfield in list.Fields)
-                {
-                    if((!tmpfield.FromBaseType && tmpfield.Hidden == false)){
-                        if (tmpfield.InternalName.Equals("ContentType"))
-                        {
-                            continue;
-                        }
-                        Console.WriteLine(tmpfield.InternalName);
-                        
-                        fieldNames.Add(tmpfield.InternalName);
-                    }
-                }
+                List list = SharePointHelper.GetListItemByTitle(cc, listname);
                 
+                List<string> fieldNames = SharePointHelper.GetVisibleFieldNames(cc, list);
+
                 FolderCollection folders = list.RootFolder.Folders;
                 cc.Load(folders);
                 await cc.ExecuteQueryAsync();
 
-                
-
-                foreach (var folder in folders)
-                {
-                    
-                    var items = folder.Files;
-                    Console.WriteLine("Folder Name: " + folder.Name);
-                    
-                    // Skip unecessary folder
-                    if(string.IsNullOrEmpty(folder.ProgID)){
-                        continue;
-                    }
-
-                    cc.Load(items);
-                    await cc.ExecuteQueryAsync();
-
-                    foreach (var file in items)
-                    {
-                        
-                        ListItem item = file.ListItemAllFields;
-                        //test
-                        cc.Load(item);
-                        await cc.ExecuteQueryAsync();
-
-                        var json = new JObject();
-                        json.Add(new JProperty("filename", file.Name));
-                        json.Add(new JProperty("folder", folder.Name));
-                        json.Add(new JProperty("uri", file.LinkingUri));
-                        foreach (var fieldname in fieldNames)
-                        {
-                            
-                            if (item[fieldname] != null)
-                            {
-                                Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
-                                var match = rg.Match(item[fieldname].ToString());
-                                if(match.Success){
-                                    if(fieldname.Equals("SPORResponsible") == true){
-                                        FieldUserValue fieldUserValue = item[fieldname] as FieldUserValue;
-                                        json.Add(new JProperty(fieldname, fieldUserValue.Email));
-
-                                    }
-                                    else
-                                    {
-                                        TaxonomyFieldValue taxonomyFieldValue = item[fieldname] as TaxonomyFieldValue;
-                                        json.Add(new JProperty(fieldname, taxonomyFieldValue.Label));
-                                    }
-                                }
-                                else
-                                {
-                                    json.Add(new JProperty(fieldname, item[fieldname]));  
-                                }
-
-                            }
-                        }
-                        
-                        SPDocs.Add(json);
-
-                    }
-                }
-
-
+                List<JObject> SPDocs = SharePointHelper.GetItemsFromListByField(cc, folders, fieldNames);
 
                 return new OkObjectResult(SPDocs);
             }
@@ -196,7 +114,6 @@ namespace SharePointAPI.Controllers
         ///        	"SPORStatus" : {
         ///        		"label":"Under arbeid", 
         ///        		"type":"Text"
-        ///        		
         ///        	},
         ///        	"SPORResponsible" : {
         ///        		"label":"Nina.Torjesen@ae.no", 
@@ -230,14 +147,17 @@ namespace SharePointAPI.Controllers
 
                 FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString());
                 File uploadFile;
+                //Upload file to library/list
                 if (SharePointHelper.FolderJObjectExist(doc) == false)
                 {
                     uploadFile = list.RootFolder.Files.Add(newFile);
                     Console.WriteLine("folder missing!!!!");
                 }
+                // upload file into document set 
                 else{
                     //Folder folder = list.RootFolder.Folders.GetByUrl("My first document set");
                     Folder folder = SharePointHelper.GetFolder(cc, list, doc["foldername"].ToString());
+                    
                     if (folder == null)
                     {
                         JObject documentSetFields = doc["documentsetfields"] as JObject;
@@ -258,13 +178,12 @@ namespace SharePointAPI.Controllers
                 SharePointHelper.SetMetadataFields(cc, inputFields, fields, item);                
                 
                 
-                cc.Load(list);
-                cc.Load(uploadFile);
+                //cc.Load(list);
+                //cc.Load(uploadFile);
                 await cc.ExecuteQueryAsync();
 
                 Console.WriteLine("Done");
                 return new NoContentResult();
-
 
             }
             catch (Exception ex)
@@ -525,15 +444,15 @@ namespace SharePointAPI.Controllers
         ///         "filename": "Cyan.svg",
 	    ///         "fields":{
 	    ///         		"SPORProjectNameValue":{
-         ///                    "label": "Skjerka nytt aggregat - 8026-3",
-         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
-         ///                    "wssid": 25
-         ///                  },
+        ///                    "label": "Skjerka nytt aggregat - 8026-3",
+        ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+        ///                    "wssid": 25
+        ///                  },
 	    ///         		"SPORConstruction":{
-         ///                    "label": "Skjerka nytt aggregat - 8026-3",
-         ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
-         ///                    "wssid": 25
-         ///                  }
+        ///                    "label": "Skjerka nytt aggregat - 8026-3",
+        ///                    "TermGuid":"e381ccae-bb79-4a35-9dbb-a54638348fc7",
+        ///                    "wssid": 25
+        ///                  }
 	    ///         }
         ///         
         ///     }
