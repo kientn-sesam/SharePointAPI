@@ -8,10 +8,10 @@ COPY SharePointAPI.sln ./
 COPY SharePointAPI.csproj ./
 RUN dotnet restore "SharePointAPI.csproj" 
 COPY . .
-RUN dotnet build "SharePointAPI.csproj" -c Release -o /app
+RUN dotnet build "SharePointAPI.csproj" -c Release -o /app/
 
 FROM build AS publish
-RUN dotnet publish "SharePointAPI.csproj" -c Release -o /app
+RUN dotnet publish "SharePointAPI.csproj" -c Release -o /app/
 
 FROM base AS final
 WORKDIR /app

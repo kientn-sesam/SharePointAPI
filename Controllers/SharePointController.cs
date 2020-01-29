@@ -12,8 +12,11 @@ using Microsoft.SharePoint.Client.Taxonomy;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Text.RegularExpressions;
+using SMBLibrary;
+using SMBLibrary.Client;
 
 using SharePointAPI.Middleware;
+using SharePointAPI.Models;
 
 namespace SharePointAPI.Controllers
 {
@@ -27,6 +30,7 @@ namespace SharePointAPI.Controllers
 
         public SharePointController()
         {
+            
             if(Environment.GetEnvironmentVariable("baseurl") != null){
                 Console.WriteLine("Baseline url: " + Environment.GetEnvironmentVariable("baseurl"));
                 _baseurl = Environment.GetEnvironmentVariable("baseurl");
@@ -58,7 +62,7 @@ namespace SharePointAPI.Controllers
         /// <remarks>
         /// Sample request:
         ///
-        ///     GET /api/sharepoint/documentswithfields?site=sitename&list=listname
+        ///     GET /api/sharepoint/documentswithfields?site=<sitename>&list=<listname>
         ///     
         /// </remarks>
         /// <param name="param">New document parameters</param>
@@ -71,6 +75,7 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
+                Console.WriteLine(_baseurl);
                 
                 List list = SharePointHelper.GetListItemByTitle(cc, listname);
                 
@@ -134,18 +139,33 @@ namespace SharePointAPI.Controllers
         /// <response code="201">Returns success with the new site title</response>
         /// <response code="404">Returns resource not found if the ID of the new site is empty</response>
         /// <response code="500">If the input parameter is null or empty</response>
-        public async Task<IActionResult> NewDocument([FromBody] JObject doc)
+        public async Task<IActionResult> NewDocument([FromBody] JArray param)
         {
             
+            JObject doc = param.ToObject<List<JObject>>().FirstOrDefault();
+            Console.WriteLine(doc);
 
             string site = doc["site"].ToString();
             string url = _baseurl + "sites/" + site;
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try{
-
                 List list = SharePointHelper.GetListItemByTitle(cc, doc["list"].ToString());
+                SMBCredential SMBCredential = new SMBCredential(){ 
+                    username = Environment.GetEnvironmentVariable("smb_username"), 
+                    password = _password, 
+                    domain = Environment.GetEnvironmentVariable("domain"),
+                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                    share = Environment.GetEnvironmentVariable("share"),
+                };
+                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                SMB2Client client = new SMB2Client();
+                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
 
-                FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString());
+                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+                
+                FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
+                
                 File uploadFile;
                 //Upload file to library/list
                 if (SharePointHelper.FolderJObjectExist(doc) == false)
@@ -170,16 +190,15 @@ namespace SharePointAPI.Controllers
                 ListItem item = uploadFile.ListItemAllFields;
                 cc.Load(item);
 
-                FieldCollection fields = SharePointHelper.GetFields(cc, list);
+                FieldCollection fields = list.Fields;
+                cc.Load(fields);
+                cc.ExecuteQuery();
 
-                
                 JObject inputFields = doc["fields"] as JObject;
                 //Add metadata
                 SharePointHelper.SetMetadataFields(cc, inputFields, fields, item);                
                 
-                
-                //cc.Load(list);
-                //cc.Load(uploadFile);
+
                 await cc.ExecuteQueryAsync();
 
                 Console.WriteLine("Done");
@@ -295,7 +314,7 @@ namespace SharePointAPI.Controllers
                 
                 ListItem newListItem = list.AddItem(newItemInfo);
                 newListItem["ContentTypeId"] = targetDocumentSetContentType.Id.ToString();
-                newListItem.Update();
+                newListItem.SystemUpdate();
                 list.Update();
                 await cc.ExecuteQueryAsync();
 
@@ -344,24 +363,12 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                Web web = cc.Web;
-                await cc.ExecuteQueryAsync();
-                cc.Load(web);                
-                var lists = web.Lists;
-                cc.Load(lists);
-                await cc.ExecuteQueryAsync();
-                
-                List list = web.Lists.GetByTitle(param["list"].ToString());
+                List list = cc.Web.Lists.GetByTitle(param["list"].ToString());
 
+                
                 Folder folder = list.RootFolder.Folders.GetByUrl(param["foldername"].ToString());
-                cc.Load(folder);
-                await cc.ExecuteQueryAsync();
                 
                 var items = folder.Files;
-                //cc.Load(items);
-                //await cc.ExecuteQueryAsync();
-                
-                //await cc.ExecuteQueryAsync();
                 var file = items.GetByUrl(param["filename"].ToString());
                 
                 cc.Load(file);
@@ -371,8 +378,6 @@ namespace SharePointAPI.Controllers
                 cc.Load(item);
                 await cc.ExecuteQueryAsync();
 
-                
-                
                 JObject inputFields = param["fields"] as JObject;
                 //update metadata
                 foreach (KeyValuePair<string, JToken> inputField in inputFields)
@@ -477,9 +482,17 @@ namespace SharePointAPI.Controllers
                 await cc.ExecuteQueryAsync();
                 
                 List list = web.Lists.GetByTitle(doc["list"].ToString());
+                ListItem listItem;
+                if (SharePointHelper.FolderJObjectExist(doc) == false)
+                {
+                    listItem = list.RootFolder.ListItemAllFields;
+                }
+                else
+                {    
+                    Folder folder = list.RootFolder.Folders.GetByUrl(doc["foldername"].ToString());
+                    listItem = folder.ListItemAllFields;
+                }
 
-                Folder folder = list.RootFolder.Folders.GetByUrl(doc["foldername"].ToString());
-                ListItem listItem = folder.ListItemAllFields;
                 cc.Load(listItem);
                 cc.ExecuteQuery();
 
@@ -516,7 +529,7 @@ namespace SharePointAPI.Controllers
                     
 
                 }
-                listItem.Update();
+                listItem.SystemUpdate();
                 cc.Load(listItem);
                 await cc.ExecuteQueryAsync();
                 
@@ -532,6 +545,409 @@ namespace SharePointAPI.Controllers
             }
         }
 
+
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/document
+        ///     {
+        ///         "list":"Dokumentasjon",
+        ///         "file_url":"https://www.bring.no/radgivning/sende-noe/adressetjenester/postnummer/_/attachment/download/c0300459-6555-4833-b42c-4b16496b7cc0:1127fa77303a0347c45d609069d1483b429a36c0/Postnummerregister-Excel.xlsx",
+        ///         "foldername":"Landskaps og miljøplan",
+        ///         "site": "sporaevk",
+        ///         "filename": "Postnummerregister-Excel.xlsx"
+        ///     }
+        /// </remarks>
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public async Task<IActionResult> UploadToSharePoint([FromBody] JObject doc)
+        {
+            string filename = doc["filename"].ToString();
+            string site = doc["site"].ToString();
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                string foldername = doc["foldername"].ToString();
+                //SMBCredential webCredential = new SMBCredential(){ 
+                //    username = _username, 
+                //    password = _password, 
+                //    domain = "AE03PDFS01.a-e.no"
+                //};
+                FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString());
+                //FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), webCredential);
+                List list = cc.Web.Lists.GetByTitle(doc["list"].ToString());
+                Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+
+                File uploadFile = folder.Files.Add(newFile);
+                ListItem item = uploadFile.ListItemAllFields;
+                cc.Load(item);
+                await cc.ExecuteQueryAsync();
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/document
+        ///     {
+        ///         "list":"Dokumentasjon",
+        ///         
+        ///         "foldername":"Landskaps og miljøplan",
+        ///         "site": "sporaevk",
+        ///         
+        ///     }
+        /// </remarks>
+        [HttpGet]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public string[] FolderNames([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
+        {
+            
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetByTitle(listname);
+                FolderCollection folders = SharePointHelper.GetFolders(cc, list);
+                string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
+
+                return foldernames;
+
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     POST /api/sharepoint/document
+        ///     {
+        ///         "list":"Dokumentasjon",
+        ///         "file_url":"https://www.bring.no/radgivning/sende-noe/adressetjenester/postnummer/_/attachment/download/c0300459-6555-4833-b42c-4b16496b7cc0:1127fa77303a0347c45d609069d1483b429a36c0/Postnummerregister-Excel.xlsx",
+        ///         "foldername":"Landskaps og miljøplan",
+        ///         "site": "sporaevk",
+        ///         "filename": "Postnummerregister-Excel.xlsx"
+        ///     }
+        /// </remarks>
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public async Task<IActionResult> Migration([FromBody] JArray param)
+        {
+            //Console.WriteLine(param);
+            JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
+
+            //string site = doc["site"].ToString();
+            string site = tmpDoc["site"].ToString();
+            
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                ///SMBCredential SMBCredential = new SMBCredential(){ 
+                ///    username = Environment.GetEnvironmentVariable("smb_username"), 
+                ///    password = _password, 
+                ///    domain = Environment.GetEnvironmentVariable("domain"),
+                ///    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                ///    share = Environment.GetEnvironmentVariable("share"),
+                ///};
+
+                
+
+                ///var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                ///SMB2Client client = new SMB2Client();
+                ///bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+///
+                ///NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ///ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+
+                List list = cc.Web.Lists.GetByTitle(tmpDoc["list"].ToString());
+                //cc.Load(list);
+                //cc.ExecuteQuery();
+
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
+
+                FolderCollection folders = SharePointHelper.GetFolders(cc, list);
+                string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
+                foreach (JObject doc in param.ToObject<List<JObject>>())
+                {
+                    
+                    string filename = doc["filename"].ToString();
+                    string file_url = doc["file_url"].ToString();
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                    //FieldCollection fields = list.Fields;
+                    
+
+
+
+                    string foldername = doc["foldername"].ToString();
+                    Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+                    
+                    File uploadFile;
+                    if (SharePointHelper.FolderJObjectExist(doc) == false)
+                    {
+                        uploadFile = list.RootFolder.Files.Add(newFile);
+                        Console.WriteLine("folder missing!!!!");
+                    }
+                    else
+                    {
+                        if(!foldernames.Contains(doc["foldername"].ToString()))
+                        {
+                            JObject documentSetFields = doc["documentsetfields"] as JObject;
+                            folder = SharePointHelper.CreateFolder(cc, list, doc["sitecontent"].ToString(), doc["foldername"].ToString(), documentSetFields);
+                        }
+
+                        uploadFile = folder.Files.Add(newFile);
+                    }
+                    
+                    ListItem item = uploadFile.ListItemAllFields;
+                    //cc.Load(item);
+                    //cc.ExecuteQuery();
+                    //FieldCollection fields = list.Fields;
+                    //cc.Load(fields);
+                    //await cc.ExecuteQueryAsync();
+                    //SharePointHelper.SetMetadataFields(cc, doc["fields"] as JObject, fields, item);
+                    JObject inputFields = doc["fields"] as JObject;
+                    SharePointHelper.SetMetadataFields(cc, list, inputFields, fields, item);
+                
+                }
+                //cc.Load(item);
+                await cc.ExecuteQueryAsync();
+                ///client.Logoff();
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+
+        [HttpGet]
+        public List<Metadata> Fields([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
+        {
+
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetByTitle(listname);
+
+                return SharePointHelper.GetFields(cc, list);
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public async Task<IActionResult> MigrationTestFolder([FromBody] JArray param)
+        {
+            //Console.WriteLine(param);
+            JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
+
+            //string site = doc["site"].ToString();
+            string site = tmpDoc["site"].ToString();
+            
+            string url = _baseurl + "sites/" + site;
+            string tmpList = tmpDoc["list"].ToString();
+
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                SMBCredential SMBCredential = new SMBCredential(){ 
+                    username = Environment.GetEnvironmentVariable("smb_username"), 
+                    password = _password, 
+                    domain = Environment.GetEnvironmentVariable("domain"),
+                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                    share = Environment.GetEnvironmentVariable("share"),
+                };
+
+                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                SMB2Client client = new SMB2Client();
+                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+
+                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+
+                List list = cc.Web.Lists.GetByTitle(tmpList);
+                //cc.Load(list);
+                //cc.ExecuteQuery();
+
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
+
+                FolderCollection folders = SharePointHelper.GetFolders(cc, list);
+                //string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
+                foreach (JObject doc in param.ToObject<List<JObject>>())
+                {
+                    
+                    
+                    string filename = doc["filename"].ToString();
+                    string file_url = doc["file_url"].ToString();
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                    //FieldCollection fields = list.Fields;
+                    
+                    if (newFile == null){
+                        Console.WriteLine("Failed to upload. Skip: " + filename);
+                        continue;
+                    }
+
+                    
+                    
+                    File uploadFile;
+                    if (SharePointHelper.FolderJObjectExist(doc) == false)
+                    {
+                        uploadFile = list.RootFolder.Files.Add(newFile);
+                    }
+                    else
+                    {
+                        string foldername = doc["foldername"].ToString();
+                        Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+                        uploadFile = folder.Files.Add(newFile);
+                    }
+                    Console.WriteLine("Upload file: " + newFile.Url + " edocs-document: " + doc["_id"]);
+                    
+                    ListItem item = uploadFile.ListItemAllFields;
+                    //cc.Load(item);
+                    //cc.ExecuteQuery();
+                    
+                    JObject inputFields = doc["fields"] as JObject;
+                    //SharePointHelper.SetMetadataFields(cc, list, inputFields, fields, item);
+                    DateTime dtMin = new DateTime(1900,1,1);
+                    foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                    {
+
+                        if (inputField.Value == null || inputField.Value.ToString() == "" )
+                        {
+                            //Console.WriteLine(inputField.Key);
+                            continue;
+                        }
+                        
+                        var field = fields.Find(f => f.InternalName == inputField.Key);
+
+
+                        if(field.TypeAsString.Equals("TaxonomyFieldType"))
+                        {
+                            Field taxField = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            var taxKeywordField = cc.CastTo<TaxonomyField>(taxField); 
+                            
+
+                            Guid _id = taxKeywordField.TermSetId;
+                            string _termID = TermHelper.GetTermIdByName(cc, inputField.Value.ToString(), _id);
+
+                            
+                            TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                            {
+                                Label = inputField.Value.ToString(),
+                                TermGuid = _termID,
+                                //WssId = -1
+                                //WssId = (int)taxObj["WssId"]
+                            };
+
+                            taxKeywordField.SetFieldValueByValue(item, termValue);
+                            taxKeywordField.Update();
+                        }
+                        else if(field.TypeAsString.Equals("User"))
+                        {
+                            var user = FieldUserValue.FromUser(inputField.Value.ToString());
+                            item[inputField.Key] = user;
+                            Console.WriteLine("Set field " + inputField.Key + " to " + user); 
+                            
+                        }
+                        else if(field.TypeAsString.Equals("DateTime")){
+                            
+                            string dateTimeStr = inputField.Value.ToString();
+                            dateTimeStr = dateTimeStr.Replace("~t","");
+                            if(DateTime.TryParse(dateTimeStr, out DateTime dt))
+                            {
+                                if(dtMin <= dt){
+                                    item[inputField.Key] = dt;
+                                    Console.WriteLine("Set field " + inputField.Key + "to " + dt);
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+
+                        }
+                        else
+                        {
+                            int tokenLength = inputField.Value.Count();
+
+                            if(tokenLength >= 1){
+                                continue;
+                            }
+                            else
+                            {
+                                item[inputField.Key] = inputField.Value.ToString();
+                                Console.WriteLine("Set " + inputField.Key + " to " + inputField.Value.ToString());
+                                
+                            }
+                            
+                        }
+
+                        item.SystemUpdate();
+                    }
+                    
+                    try
+                    {
+                        await cc.ExecuteQueryAsync();
+                        Console.WriteLine("Successfully uploaded " + newFile.Url + " and updated metadata");
+                    }
+                    catch (System.Exception e)
+                    {
+                        Console.WriteLine("Failed to update metadata.");
+                        Console.WriteLine(e);
+                        continue;
+                    }
+                    
+                
+                }
+                //cc.Load(item);
+                client.Logoff();
+                
+                await cc.ExecuteQueryAsync();
+                
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
 
 
     }

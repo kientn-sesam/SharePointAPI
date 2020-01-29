@@ -17,7 +17,7 @@
           "/usr/local/share/dotnet/sdk/NuGetFallbackFolder"
         ],
         "configFilePaths": [
-          "/Users/kientn/.config/NuGet/NuGet.Config"
+          "/Users/kientn/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "netcoreapp3.1"
@@ -46,6 +46,14 @@
             "Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation": {
               "target": "Package",
               "version": "[3.1.0, )"
+            },
+            "SMBLibraryLite": {
+              "target": "Package",
+              "version": "[1.3.10, )"
+            },
+            "SharpCifs.Std": {
+              "target": "Package",
+              "version": "[0.2.13, )"
             }
           },
           "imports": [

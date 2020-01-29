@@ -1,8 +1,10 @@
-helpers.json
+test.json
 .dockerignore
 .env
 .vs
 .vscode
+docker-compose.yml
 bin
 obj
 Properties
+.git

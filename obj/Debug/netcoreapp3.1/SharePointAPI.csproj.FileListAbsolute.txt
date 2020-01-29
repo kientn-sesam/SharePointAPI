@@ -339,3 +339,6 @@
 /Users/kientn/codes/SharePointAPI/obj/Debug/netcoreapp3.1/SharePointAPI.pdb
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharePointPnP.Client.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/test.json
+/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharpCifs.Std.dll
+/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SMBLibrary.dll
+/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/Utilities.dll

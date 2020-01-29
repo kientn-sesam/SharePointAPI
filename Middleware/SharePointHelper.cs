@@ -2,6 +2,8 @@ using Microsoft.SharePoint.Client;
 using Microsoft.SharePoint.Client.Taxonomy;
 using Microsoft.SharePoint.Client.UserProfiles;
 using System;
+using System.IO;
+using System.Security.Principal;
 using System.Text;
 using System.Net;
 using System.Collections;
@@ -10,6 +12,16 @@ using System.Linq;
 using System.Web;
 using Newtonsoft.Json.Linq;
 using System.Text.RegularExpressions;
+using SharpCifs.Smb;
+using SMBLibrary;
+using SMBLibrary.Client;
+using Microsoft.AspNetCore.Http;
+
+
+
+
+
+using SharePointAPI.Models;
 
 
 namespace SharePointAPI.Middleware
@@ -20,15 +32,13 @@ namespace SharePointAPI.Middleware
         {
             try
             {
-                //Web web = cc.Web;
-                //cc.Load(web);
-                var Lists = cc.Web.Lists;
-                cc.Load(Lists);
-                //cc.ExecuteQuery();
-                List list = Lists.GetByTitle(title);
+
+                //var Lists = cc.Web.Lists;
+                //cc.Load(Lists);
+                List list = cc.Web.Lists.GetByTitle(title);
+
                 
                 return list;
-                
             }
             catch (System.Exception ex)
             {
@@ -50,7 +60,6 @@ namespace SharePointAPI.Middleware
                         {
                             continue;
                         }
-                        Console.WriteLine(tmpfield.InternalName);
                         
                         fieldNames.Add(tmpfield.InternalName);
                     }
@@ -75,7 +84,7 @@ namespace SharePointAPI.Middleware
                 {
                     
                     var items = folder.Files;
-                    Console.WriteLine("Folder Name: " + folder.Name);
+                    
                     
                     // Skip unecessary folder
                     if(string.IsNullOrEmpty(folder.ProgID)){
@@ -84,7 +93,7 @@ namespace SharePointAPI.Middleware
 
                     cc.Load(items);
                     cc.ExecuteQuery();
-
+                    
                     foreach (var file in items)
                     {
                         
@@ -220,7 +229,7 @@ namespace SharePointAPI.Middleware
                     }
                 }
 
-                newListItem.Update();
+                newListItem.SystemUpdate();
                 list.Update();
                 cc.ExecuteQuery();
 
@@ -236,6 +245,96 @@ namespace SharePointAPI.Middleware
             }
         }
 
+        public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename, SMBCredential SMBCredential, SMB2Client client, NTStatus nts, ISMBFileStore fileStore)
+        {
+            try
+            {
+                
+                //SMBLibrary.NTStatus actionStatus;
+                FileCreationInformation newFile = new FileCreationInformation();
+                NTStatus status = nts;
+            
+                object handle;
+                FileStatus fileStatus;
+                
+                //string path = fileurl;
+                
+                //string path = "Dokument/ARKIV/RUNSAL/23_02_2011/sz001!.PDF";
+
+                
+                string tmpfile = Path.GetTempFileName();
+                status = fileStore.CreateFile(out handle, out fileStatus, fileurl, AccessMask.GENERIC_READ, 0, ShareAccess.Read, CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
+
+                if (status != NTStatus.STATUS_SUCCESS)
+                {
+                    Console.WriteLine(status);
+                }
+                else{
+                    
+                    byte[] buf;
+                    var fs = new FileStream(tmpfile, FileMode.OpenOrCreate);
+                    var bw = new BinaryWriter(fs);
+                    int bufsz = 64 * 1000;
+                    int i = 0;
+
+                    
+                    do{
+                        status = fileStore.ReadFile(out buf, handle, i * bufsz, bufsz);
+                        if (status == NTStatus.STATUS_SUCCESS)
+                        {
+                            int n = buf.GetLength(0);
+                            
+                            bw.Write(buf, 0, n);
+                            if (n < bufsz) break;
+                            i++;
+                        }
+                    
+
+                    }
+                    while (status != NTStatus.STATUS_END_OF_FILE && i < 1000);
+                    if (status == NTStatus.STATUS_SUCCESS)
+                    {
+                        fileStore.CloseFile(handle);
+                        bw.Flush();
+                        fs.Close();
+                        fs = System.IO.File.OpenRead(tmpfile);
+                        
+                        //byte[] fileBytes = new byte[fs.Length];
+                        //fs.Read(fileBytes, 0, fileBytes.Length);
+                        
+                        newFile.Overwrite = true;
+                        newFile.ContentStream = fs;
+                        //newFile.Content = fileBytes;
+                        newFile.Url = filename;
+                        
+                        
+                    }
+                    else
+                    {
+                        System.IO.File.Delete(tmpfile);
+                        return null;
+                    }
+                    
+                    
+                    
+                    System.IO.File.Delete(tmpfile);
+                    
+                        
+                }
+                    
+                
+                
+                
+
+                return newFile;
+                
+            }
+            catch (System.Exception e)
+            {
+                Console.WriteLine("failed with error: " + e);
+                throw;
+            }
+        }
         public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename)
         {
             try
@@ -261,16 +360,24 @@ namespace SharePointAPI.Middleware
                 throw;
             }
         }
-
-        public static FieldCollection GetFields(ClientContext cc, List list)
+        
+        public static List<Metadata> GetFields(ClientContext cc, List list)
         {
             try
             {
+                List<Metadata> metadata = new List<Metadata>();
+
                 FieldCollection fields = list.Fields;
                 cc.Load(fields);
                 cc.ExecuteQuery();
 
-                return fields;                
+                foreach (var field in fields)
+                {                
+                    
+                    metadata.Add(new Metadata(){  Title = field.Title, TypeAsString = field.TypeAsString, InternalName = field.InternalName });              
+                }
+                
+                return metadata;                
             }
             catch (System.Exception ex)
             {
@@ -278,14 +385,96 @@ namespace SharePointAPI.Middleware
                 throw;
             }
         }
-        /*public static List<Object> GetFieldNameAndType(ClientContext cc, FieldCollection fields)
+
+        public static void SetMetadataFields(ClientContext cc, List list, JObject inputFields, List<Metadata> fields, ListItem item)
         {
-            List<Object> fieldType = new List<object>();
+            try
+            {
+                DateTime dtMin = new DateTime(1900,1,1);
+                foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                {
 
-            
+                    if (inputField.Value == null || inputField.Value.ToString() == "" )
+                    {
+                        //Console.WriteLine(inputField.Key);
+                        continue;
+                    }
+                    
+                    var field = fields.Find(f => f.InternalName == inputField.Key);
 
-        }*/
 
+                    if(field.TypeAsString.Equals("TaxonomyFieldType"))
+                    {
+                        Field taxField = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                        var taxKeywordField = cc.CastTo<TaxonomyField>(taxField); 
+                        
+
+                        Guid _id = taxKeywordField.TermSetId;
+                        string _termID = TermHelper.GetTermIdByName(cc, inputField.Value.ToString(), _id);
+
+                        
+                        TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                        {
+                            Label = inputField.Value.ToString(),
+                            TermGuid = _termID,
+                            //WssId = -1
+                            //WssId = (int)taxObj["WssId"]
+                        };
+
+                        taxKeywordField.SetFieldValueByValue(item, termValue);
+                        taxKeywordField.Update();
+                    }
+                    else if(field.TypeAsString.Equals("User"))
+                    {
+                        var user = FieldUserValue.FromUser(inputField.Value.ToString());
+                        item[inputField.Key] = user;
+                        Console.WriteLine("Set field " + inputField.Key + " to " + user); 
+                        
+                    }
+                    else if(field.TypeAsString.Equals("DateTime")){
+                        
+                        string dateTimeStr = inputField.Value.ToString();
+                        dateTimeStr = dateTimeStr.Replace("~t","");
+                        if(DateTime.TryParse(dateTimeStr, out DateTime dt))
+                        {
+                            if(dtMin <= dt){
+                                item[inputField.Key] = dt;
+                                Console.WriteLine("Set field " + inputField.Key + "to " + dt);
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+
+                    }
+                    else
+                    {
+                        int tokenLength = inputField.Value.Count();
+
+                        if(tokenLength >= 1){
+                            continue;
+                        }
+                        else
+                        {
+                            item[inputField.Key] = inputField.Value.ToString();
+                            Console.WriteLine("Set " + inputField.Key + " to " + inputField.Value.ToString());
+                            
+                        }
+                        
+                    }
+
+                    item.SystemUpdate();
+                }
+                
+                
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+        }
 
         public static void SetMetadataFields(ClientContext cc, JObject inputFields, FieldCollection fields, ListItem item)
         {
@@ -293,8 +482,10 @@ namespace SharePointAPI.Middleware
             {   
                 
                 var field = fields.GetByInternalNameOrTitle(inputField.Key);
+                
                 cc.Load(field);
                 cc.ExecuteQuery();
+                Console.WriteLine(field.TypeAsString);
                 
                 
                 if(field.TypeAsString.Equals("TaxonomyFieldType"))
@@ -307,7 +498,7 @@ namespace SharePointAPI.Middleware
                     
                     TaxonomyFieldValue termValue = new TaxonomyFieldValue()
                     {
-                        Label = inputField.Value.ToString().ToString(),
+                        Label = inputField.Value.ToString(),
                         TermGuid = _termID,
                         //WssId = -1
                         //WssId = (int)taxObj["WssId"]
@@ -322,6 +513,15 @@ namespace SharePointAPI.Middleware
                     item[inputField.Key] = user;
                     
                 }
+                else if(field.TypeAsString.Equals("DateTime") && inputField.Value.ToString() != ""){
+                    
+                    string dateTimeStr = inputField.Value.ToString();
+                    dateTimeStr = dateTimeStr.Replace("~t","");
+                    item[inputField.Key] = Convert.ToDateTime(dateTimeStr);
+                }
+                else if(inputField.Value.ToString() == ""){
+                    continue;
+                }
                 else
                 {
                     item[inputField.Key] = inputField.Value.ToString();
@@ -333,12 +533,26 @@ namespace SharePointAPI.Middleware
                 //item[inputField.Key] = termValue;
                 
                 
-                item.Update();
+                item.SystemUpdate();
                 //cc.ExecuteQuery();
                 
             }
                 
 
         }
+
+        public static string[] GetFolderNames(ClientContext cc, List list, FolderCollection folders)
+        {
+            string[] foldernames = new string[folders.Count];
+                
+                for (int i = 0; i < folders.Count; i++)
+                {
+                    foldernames[i] = folders[i].Name;
+                }
+
+                return foldernames;
+        }
+
+
     }
 }
