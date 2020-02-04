@@ -185,7 +185,6 @@ namespace SharePointAPI.Middleware
             catch (System.Exception)
             {
                 return false;
-                throw;
             }
 
             return true;
@@ -247,93 +246,83 @@ namespace SharePointAPI.Middleware
 
         public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename, SMBCredential SMBCredential, SMB2Client client, NTStatus nts, ISMBFileStore fileStore)
         {
-            try
-            {
-                
-                //SMBLibrary.NTStatus actionStatus;
-                FileCreationInformation newFile = new FileCreationInformation();
-                NTStatus status = nts;
             
-                object handle;
-                FileStatus fileStatus;
                 
-                //string path = fileurl;
+            //SMBLibrary.NTStatus actionStatus;
+            FileCreationInformation newFile = new FileCreationInformation();
+            NTStatus status = nts;
+        
+            object handle;
+            FileStatus fileStatus;
+            
+            //string path = fileurl;
+            
+            //string path = "Dokument/ARKIV/RUNSAL/23_02_2011/sz001!.PDF";
+            
+            string tmpfile = Path.GetTempFileName();
+            status = fileStore.CreateFile(out handle, out fileStatus, fileurl, AccessMask.GENERIC_READ, 0, ShareAccess.Read, CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
+            if (status != NTStatus.STATUS_SUCCESS)
+            {
+                Console.WriteLine(status);
+            }
+            else{
                 
-                //string path = "Dokument/ARKIV/RUNSAL/23_02_2011/sz001!.PDF";
-
+                byte[] buf;
+                var fs = new FileStream(tmpfile, FileMode.OpenOrCreate);
+                var bw = new BinaryWriter(fs);
+                int bufsz = 64 * 1000;
+                int i = 0;
                 
-                string tmpfile = Path.GetTempFileName();
-                status = fileStore.CreateFile(out handle, out fileStatus, fileurl, AccessMask.GENERIC_READ, 0, ShareAccess.Read, CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
-
-                if (status != NTStatus.STATUS_SUCCESS)
-                {
-                    Console.WriteLine(status);
-                }
-                else{
-                    
-                    byte[] buf;
-                    var fs = new FileStream(tmpfile, FileMode.OpenOrCreate);
-                    var bw = new BinaryWriter(fs);
-                    int bufsz = 64 * 1000;
-                    int i = 0;
-
-                    
-                    do{
-                        status = fileStore.ReadFile(out buf, handle, i * bufsz, bufsz);
-                        if (status == NTStatus.STATUS_SUCCESS)
-                        {
-                            int n = buf.GetLength(0);
-                            
-                            bw.Write(buf, 0, n);
-                            if (n < bufsz) break;
-                            i++;
-                        }
-                    
-
-                    }
-                    while (status != NTStatus.STATUS_END_OF_FILE && i < 1000);
+                do{
+                    status = fileStore.ReadFile(out buf, handle, i * bufsz, bufsz);
                     if (status == NTStatus.STATUS_SUCCESS)
                     {
-                        fileStore.CloseFile(handle);
-                        bw.Flush();
-                        fs.Close();
-                        fs = System.IO.File.OpenRead(tmpfile);
+                        int n = buf.GetLength(0);
                         
-                        //byte[] fileBytes = new byte[fs.Length];
-                        //fs.Read(fileBytes, 0, fileBytes.Length);
-                        
-                        newFile.Overwrite = true;
-                        newFile.ContentStream = fs;
-                        //newFile.Content = fileBytes;
-                        newFile.Url = filename;
-                        
-                        
+                        bw.Write(buf, 0, n);
+                        if (n < bufsz) break;
+                        i++;
                     }
-                    else
-                    {
-                        System.IO.File.Delete(tmpfile);
-                        return null;
-                    }
-                    
-                    
-                    
-                    System.IO.File.Delete(tmpfile);
-                    
-                        
+                
                 }
+                while (status != NTStatus.STATUS_END_OF_FILE && i < 1000);
+                
+                if (status == NTStatus.STATUS_SUCCESS)
+                {
+                    fileStore.CloseFile(handle);
+                    bw.Flush();
+                    fs.Close();
+                    fs = System.IO.File.OpenRead(tmpfile);
                     
+                    //byte[] fileBytes = new byte[fs.Length];
+                    //fs.Read(fileBytes, 0, fileBytes.Length);
+                    
+                    newFile.Overwrite = true;
+                    newFile.ContentStream = fs;
+                    //newFile.Content = fileBytes;
+                    newFile.Url = filename;
+                    
+                    
+                }
+                else
+                {
+                    System.IO.File.Delete(tmpfile);
+                    return null;
+                }
                 
                 
+                
+                System.IO.File.Delete(tmpfile);
+                
+                    
+            }
+                
+            
+            
+            
+            return newFile;
                 
 
-                return newFile;
-                
-            }
-            catch (System.Exception e)
-            {
-                Console.WriteLine("failed with error: " + e);
-                throw;
-            }
         }
         public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename)
         {
@@ -368,13 +357,16 @@ namespace SharePointAPI.Middleware
                 List<Metadata> metadata = new List<Metadata>();
 
                 FieldCollection fields = list.Fields;
-                cc.Load(fields);
+                cc.Load(fields, fields => fields.Include(
+                    f => f.InternalName,
+                    f => f.Title,
+                    f => f.TypeAsString
+                ));
                 cc.ExecuteQuery();
 
-                foreach (var field in fields)
-                {                
-                    
-                    metadata.Add(new Metadata(){  Title = field.Title, TypeAsString = field.TypeAsString, InternalName = field.InternalName });              
+                for (int i = 0; i < fields.Count; i++)
+                {
+                    metadata.Add(new Metadata(){ Title = fields[i].Title, TypeAsString = fields[i].TypeAsString, InternalName = fields[i].InternalName});
                 }
                 
                 return metadata;                
@@ -384,6 +376,7 @@ namespace SharePointAPI.Middleware
                 Console.WriteLine(ex);   
                 throw;
             }
+           
         }
 
         public static void SetMetadataFields(ClientContext cc, List list, JObject inputFields, List<Metadata> fields, ListItem item)

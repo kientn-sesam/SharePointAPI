@@ -481,7 +481,7 @@ namespace SharePointAPI.Controllers
                 cc.Load(lists);
                 await cc.ExecuteQueryAsync();
                 
-                List list = web.Lists.GetByTitle(doc["list"].ToString());
+                List list = cc.Web.Lists.GetByTitle(doc["list"].ToString());
                 ListItem listItem;
                 if (SharePointHelper.FolderJObjectExist(doc) == false)
                 {
@@ -656,122 +656,12 @@ namespace SharePointAPI.Controllers
         [Consumes("application/json")]
         public async Task<IActionResult> Migration([FromBody] JArray param)
         {
-            //Console.WriteLine(param);
-            JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
-
-            //string site = doc["site"].ToString();
-            string site = tmpDoc["site"].ToString();
-            
-            string url = _baseurl + "sites/" + site;
-            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
-            try
+             // last batch is empty
+            if (param.ToArray().Length == 0)
             {
-                ///SMBCredential SMBCredential = new SMBCredential(){ 
-                ///    username = Environment.GetEnvironmentVariable("smb_username"), 
-                ///    password = _password, 
-                ///    domain = Environment.GetEnvironmentVariable("domain"),
-                ///    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
-                ///    share = Environment.GetEnvironmentVariable("share"),
-                ///};
-
-                
-
-                ///var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
-                ///SMB2Client client = new SMB2Client();
-                ///bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
-///
-                ///NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
-                ///ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
-
-                List list = cc.Web.Lists.GetByTitle(tmpDoc["list"].ToString());
-                //cc.Load(list);
-                //cc.ExecuteQuery();
-
-                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
-
-                FolderCollection folders = SharePointHelper.GetFolders(cc, list);
-                string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
-                foreach (JObject doc in param.ToObject<List<JObject>>())
-                {
-                    
-                    string filename = doc["filename"].ToString();
-                    string file_url = doc["file_url"].ToString();
-                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
-                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
-                    //FieldCollection fields = list.Fields;
-                    
-
-
-
-                    string foldername = doc["foldername"].ToString();
-                    Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
-                    
-                    File uploadFile;
-                    if (SharePointHelper.FolderJObjectExist(doc) == false)
-                    {
-                        uploadFile = list.RootFolder.Files.Add(newFile);
-                        Console.WriteLine("folder missing!!!!");
-                    }
-                    else
-                    {
-                        if(!foldernames.Contains(doc["foldername"].ToString()))
-                        {
-                            JObject documentSetFields = doc["documentsetfields"] as JObject;
-                            folder = SharePointHelper.CreateFolder(cc, list, doc["sitecontent"].ToString(), doc["foldername"].ToString(), documentSetFields);
-                        }
-
-                        uploadFile = folder.Files.Add(newFile);
-                    }
-                    
-                    ListItem item = uploadFile.ListItemAllFields;
-                    //cc.Load(item);
-                    //cc.ExecuteQuery();
-                    //FieldCollection fields = list.Fields;
-                    //cc.Load(fields);
-                    //await cc.ExecuteQueryAsync();
-                    //SharePointHelper.SetMetadataFields(cc, doc["fields"] as JObject, fields, item);
-                    JObject inputFields = doc["fields"] as JObject;
-                    SharePointHelper.SetMetadataFields(cc, list, inputFields, fields, item);
-                
-                }
-                //cc.Load(item);
-                await cc.ExecuteQueryAsync();
-                ///client.Logoff();
-                return new NoContentResult();
-            }
-            catch (System.Exception)
-            {
-                
-                throw;
+                return null;
             }
 
-        }
-
-        [HttpGet]
-        public List<Metadata> Fields([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
-        {
-
-            string url = _baseurl + "sites/" + site;
-            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
-            try
-            {
-                List list = cc.Web.Lists.GetByTitle(listname);
-
-                return SharePointHelper.GetFields(cc, list);
-            }
-            catch (System.Exception)
-            {
-                
-                throw;
-            }
-
-        }
-
-        [HttpPost]
-        [Produces("application/json")]
-        [Consumes("application/json")]
-        public async Task<IActionResult> MigrationTestFolder([FromBody] JArray param)
-        {
             //Console.WriteLine(param);
             JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
 
@@ -784,36 +674,25 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                SMBCredential SMBCredential = new SMBCredential(){ 
-                    username = Environment.GetEnvironmentVariable("smb_username"), 
-                    password = _password, 
-                    domain = Environment.GetEnvironmentVariable("domain"),
-                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
-                    share = Environment.GetEnvironmentVariable("share"),
-                };
-
-                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
-                SMB2Client client = new SMB2Client();
-                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
-
-                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
-                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
-
+                
                 List list = cc.Web.Lists.GetByTitle(tmpList);
+            
                 //cc.Load(list);
                 //cc.ExecuteQuery();
 
                 List<Metadata> fields = SharePointHelper.GetFields(cc, list);
 
-                FolderCollection folders = SharePointHelper.GetFolders(cc, list);
+
+                //FolderCollection folders = SharePointHelper.GetFolders(cc, list);
                 //string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
-                foreach (JObject doc in param.ToObject<List<JObject>>())
+                List<JObject> docs = param.ToObject<List<JObject>>();
+
+                for (int i = 0; i < docs.Count; i++)
                 {
-                    
-                    
-                    string filename = doc["filename"].ToString();
-                    string file_url = doc["file_url"].ToString();
-                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
+                    string filename = docs[i]["filename"].ToString();
+                    string file_url = docs[i]["file_url"].ToString();
+
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
                     ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
                     //FieldCollection fields = list.Fields;
                     
@@ -822,27 +701,24 @@ namespace SharePointAPI.Controllers
                         continue;
                     }
 
-                    
-                    
                     File uploadFile;
-                    if (SharePointHelper.FolderJObjectExist(doc) == false)
+                    if (SharePointHelper.FolderJObjectExist(docs[i]) == false)
                     {
                         uploadFile = list.RootFolder.Files.Add(newFile);
                     }
                     else
                     {
-                        string foldername = doc["foldername"].ToString();
+                        string foldername = docs[i]["foldername"].ToString();
                         Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
                         uploadFile = folder.Files.Add(newFile);
                     }
-                    Console.WriteLine("Upload file: " + newFile.Url + " edocs-document: " + doc["_id"]);
-                    
+
+                    Console.WriteLine("Upload file: " + newFile.Url);
+                        
                     ListItem item = uploadFile.ListItemAllFields;
-                    //cc.Load(item);
-                    //cc.ExecuteQuery();
-                    
-                    JObject inputFields = doc["fields"] as JObject;
-                    //SharePointHelper.SetMetadataFields(cc, list, inputFields, fields, item);
+
+                    JObject inputFields = docs[i]["fields"] as JObject;
+
                     DateTime dtMin = new DateTime(1900,1,1);
                     foreach (KeyValuePair<string, JToken> inputField in inputFields)
                     {
@@ -853,8 +729,10 @@ namespace SharePointAPI.Controllers
                             continue;
                         }
                         
-                        var field = fields.Find(f => f.InternalName == inputField.Key);
+                        Console.WriteLine(inputField.Key + " - " + inputField.Value);
 
+                        var field = fields.Find(f => f.InternalName == inputField.Key);
+                        Console.WriteLine(field.InternalName + " - " + field.TypeAsString);
 
                         if(field.TypeAsString.Equals("TaxonomyFieldType"))
                         {
@@ -879,6 +757,7 @@ namespace SharePointAPI.Controllers
                         }
                         else if(field.TypeAsString.Equals("User"))
                         {
+                            //use stringbuilder
                             var user = FieldUserValue.FromUser(inputField.Value.ToString());
                             item[inputField.Key] = user;
                             Console.WriteLine("Set field " + inputField.Key + " to " + user); 
@@ -932,9 +811,233 @@ namespace SharePointAPI.Controllers
                         continue;
                     }
                     
-                
+
                 }
-                //cc.Load(item);
+                    
+                    
+                /// 1. use finally block to close open connection or to clean unused objects.
+                /// 2. Use for-loop instead of foreach based on context (refer shared link)
+                /// 3. see if you can remove un-nesessary use of try catch block
+                /// 4. use timer to find out health of code  and real time consumed 
+                /// 5. try to use private methods whenever possible
+            
+                
+                ///client.Logoff();
+                
+                //await cc.ExecuteQueryAsync();
+                
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+            
+           
+        }
+
+        [HttpGet]
+        public List<Metadata> Fields([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
+        {
+
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetByTitle(listname);
+
+                return SharePointHelper.GetFields(cc, list);
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public async Task<IActionResult> MigrationTestFolder([FromBody] JArray param)
+        {
+            // last batch is empty
+            if (param.ToArray().Length == 0)
+            {
+                return null;
+            }
+
+            //Console.WriteLine(param);
+            JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
+
+            //string site = doc["site"].ToString();
+            string site = tmpDoc["site"].ToString();
+            
+            string url = _baseurl + "sites/" + site;
+            string tmpList = tmpDoc["list"].ToString();
+
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                SMBCredential SMBCredential = new SMBCredential(){ 
+                    username = Environment.GetEnvironmentVariable("smb_username"), 
+                    password = _password, 
+                    domain = Environment.GetEnvironmentVariable("domain"),
+                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                    share = Environment.GetEnvironmentVariable("share"),
+                };
+
+                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                SMB2Client client = new SMB2Client();
+                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+
+                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+
+                List list = cc.Web.Lists.GetByTitle(tmpList);
+            
+                //cc.Load(list);
+                //cc.ExecuteQuery();
+
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
+
+                //FolderCollection folders = SharePointHelper.GetFolders(cc, list);
+                //string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
+                foreach (JObject doc in param.ToObject<List<JObject>>())
+                {
+                    
+                    
+                    string filename = doc["filename"].ToString();
+                    string file_url = doc["file_url"].ToString();
+                    
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(doc["file_url"].ToString(), doc["filename"].ToString(), SMBCredential, client, nts, fileStore);
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                    //FieldCollection fields = list.Fields;
+                    
+                    if (newFile == null){
+                        Console.WriteLine("Failed to upload. Skip: " + filename);
+                        continue;
+                    }
+                    
+                    
+                    File uploadFile;
+                    if (SharePointHelper.FolderJObjectExist(doc) == false)
+                    {
+                        uploadFile = list.RootFolder.Files.Add(newFile);
+                    }
+                    else
+                    {
+                        string foldername = doc["foldername"].ToString();
+                        Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+                        uploadFile = folder.Files.Add(newFile);
+                    }
+                    Console.WriteLine("Upload file: " + newFile.Url);
+                    
+                    ListItem item = uploadFile.ListItemAllFields;
+                    //cc.Load(item);
+                    //cc.ExecuteQuery();
+                    
+                    JObject inputFields = doc["fields"] as JObject;
+                    //SharePointHelper.SetMetadataFields(cc, list, inputFields, fields, item);
+                    DateTime dtMin = new DateTime(1900,1,1);
+                    foreach (KeyValuePair<string, JToken> inputField in inputFields)
+                    {
+
+                        if (inputField.Value == null || inputField.Value.ToString() == "" )
+                        {
+                            //Console.WriteLine(inputField.Key);
+                            continue;
+                        }
+                        
+
+                        var field = fields.Find(f => f.InternalName == inputField.Key);
+
+                        if(field.TypeAsString.Equals("TaxonomyFieldType"))
+                        {
+                            Field taxField = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            var taxKeywordField = cc.CastTo<TaxonomyField>(taxField); 
+                            
+
+                            Guid _id = taxKeywordField.TermSetId;
+                            string _termID = TermHelper.GetTermIdByName(cc, inputField.Value.ToString(), _id);
+
+                            
+                            TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                            {
+                                Label = inputField.Value.ToString(),
+                                TermGuid = _termID,
+                                //WssId = -1
+                                //WssId = (int)taxObj["WssId"]
+                            };
+
+                            taxKeywordField.SetFieldValueByValue(item, termValue);
+                            taxKeywordField.Update();
+                        }
+                        else if(field.TypeAsString.Equals("User"))
+                        {
+                            //use stringbuilder
+                            var user = FieldUserValue.FromUser(inputField.Value.ToString());
+                            item[inputField.Key] = user;
+                            Console.WriteLine("Set field " + inputField.Key + " to " + user); 
+                            
+                        }
+                        else if(field.TypeAsString.Equals("DateTime")){
+                            
+                            string dateTimeStr = inputField.Value.ToString();
+                            dateTimeStr = dateTimeStr.Replace("~t","");
+                            if(DateTime.TryParse(dateTimeStr, out DateTime dt))
+                            {
+                                if(dtMin <= dt){
+                                    item[inputField.Key] = dt;
+                                    Console.WriteLine("Set field " + inputField.Key + "to " + dt);
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+
+                        }
+                        else
+                        {
+                            int tokenLength = inputField.Value.Count();
+
+                            if(tokenLength >= 1){
+                                continue;
+                            }
+                            else
+                            {
+                                item[inputField.Key] = inputField.Value.ToString();
+                                Console.WriteLine("Set " + inputField.Key + " to " + inputField.Value.ToString());
+                                
+                            }
+                            
+                        }
+
+                        item.SystemUpdate();
+                    }
+                    
+                    try
+                    {
+                        await cc.ExecuteQueryAsync();
+                        Console.WriteLine("Successfully uploaded " + newFile.Url + " and updated metadata");
+                    }
+                    catch (System.Exception e)
+                    {
+                        Console.WriteLine("Failed to update metadata.");
+                        Console.WriteLine(e);
+                        continue;
+                    }
+                    
+                    
+                /// 1. use finally block to close open connection or to clean unused objects.
+                /// 2. Use for-loop instead of foreach based on context (refer shared link)
+                /// 3. see if you can remove un-nesessary use of try catch block
+                /// 4. use timer to find out health of code  and real time consumed 
+                /// 5. try to use private methods whenever possible
+            
+                }
                 client.Logoff();
                 
                 await cc.ExecuteQueryAsync();
@@ -946,9 +1049,34 @@ namespace SharePointAPI.Controllers
                 
                 throw;
             }
+            
 
         }
 
+        [HttpGet]
+        public int CountFiles([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
+        {
+
+            string url = _baseurl + "sites/" + site;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetByTitle(listname);
+
+                var files = list.RootFolder.Files;
+                cc.Load(files);
+                cc.ExecuteQuery();
+                
+                return files.Count;
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+        
 
     }
 }
