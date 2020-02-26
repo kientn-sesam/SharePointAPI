@@ -16,11 +16,6 @@ using SharpCifs.Smb;
 using SMBLibrary;
 using SMBLibrary.Client;
 using Microsoft.AspNetCore.Http;
-
-
-
-
-
 using SharePointAPI.Models;
 
 
@@ -45,6 +40,70 @@ namespace SharePointAPI.Middleware
                 Console.WriteLine(ex);
                 throw;
             }
+        }
+
+        public static List<JObject> GetDocuments(ClientContext cc, FileCollection files, string foldername)
+        {
+            List<JObject> SharePointDocs = new List<JObject>();
+            for (int f = 0; f < files.Count; f++)
+            {
+                Microsoft.SharePoint.Client.File file = files[f];
+                ListItem item = file.ListItemAllFields;
+
+                var json = new JObject();
+                json.Add(new JProperty("filename", file.Name));
+                if (foldername != null)
+                {
+                    json.Add(new JProperty("folder", foldername));
+                }
+                json.Add(new JProperty("uri", file.LinkingUri));
+
+                
+                foreach (KeyValuePair<string, Object> field in item.FieldValues)
+                {
+                    if (field.Value != null)
+                    {
+                        Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
+                        var match = rg.Match(field.Value.ToString());
+                        //Check Taxfields
+                        if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.FieldUserValue"))
+                        {
+                            FieldUserValue fieldUserValue = field.Value as FieldUserValue;
+                            var jsonUser = new JObject();
+                            jsonUser.Add(new JProperty("Email", fieldUserValue.Email));
+                            jsonUser.Add(new JProperty("LookupId", fieldUserValue.LookupId));
+                            jsonUser.Add(new JProperty("LookupValue", fieldUserValue.LookupValue));
+                            json.Add(new JProperty(field.Key, jsonUser));
+                        }
+                        else if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.FieldLookupValue"))
+                        {
+                            FieldLookupValue fieldLookupValue = field.Value as FieldLookupValue;
+                            var jsonfieldLookup = new JObject();
+                            jsonfieldLookup.Add(new JProperty("LookupID", fieldLookupValue.LookupId));
+                            jsonfieldLookup.Add(new JProperty("LookupValue", fieldLookupValue.LookupValue));
+                            json.Add(new JProperty(field.Key, jsonfieldLookup));
+                        }
+                        else if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.Taxonomy.TaxonomyFieldValue"))
+                        {
+                            TaxonomyFieldValue taxonomyFieldValue = field.Value as TaxonomyFieldValue;
+                            var jsonTaxField = new JObject();
+                            jsonTaxField.Add(new JProperty("WssId", taxonomyFieldValue.WssId));
+                            jsonTaxField.Add(new JProperty("TermGuid", taxonomyFieldValue.TermGuid));
+                            jsonTaxField.Add(new JProperty("Label", taxonomyFieldValue.Label));
+                            json.Add(new JProperty(field.Key, jsonTaxField));
+                        }
+                        else
+                        {
+                            json.Add(new JProperty(field.Key, field.Value.ToString()));
+                        }
+
+                    }
+                }
+
+                SharePointDocs.Add(json);
+            }
+
+            return SharePointDocs;
         }
         public static List<string> GetVisibleFieldNames(ClientContext cc, List list)
         {
@@ -98,6 +157,7 @@ namespace SharePointAPI.Middleware
                     {
                         
                         ListItem item = file.ListItemAllFields;
+                        var versions = item.Versions;
                         //test
                         cc.Load(item);
                         cc.ExecuteQuery();
@@ -114,13 +174,14 @@ namespace SharePointAPI.Middleware
                                 Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
                                 var match = rg.Match(item[fieldname].ToString());
                                 if(match.Success){
-                                    if(fieldname.Equals("SPORResponsible") == true){
+                                    if(fieldname.Equals("SPORResponsible") == true || fieldname.Equals("SPOREmployee") == true || fieldname.Equals("SPOREmployeeManager") == true){
                                         FieldUserValue fieldUserValue = item[fieldname] as FieldUserValue;
                                         json.Add(new JProperty(fieldname, fieldUserValue.Email));
 
                                     }
                                     else
                                     {
+                                        Console.WriteLine(fieldname);
                                         TaxonomyFieldValue taxonomyFieldValue = item[fieldname] as TaxonomyFieldValue;
                                         json.Add(new JProperty(fieldname, taxonomyFieldValue.Label));
                                     }
@@ -244,6 +305,107 @@ namespace SharePointAPI.Middleware
             }
         }
 
+        public static Folder CreateFolder(ClientContext cc, List list, string sitecontent, string documentSetName)
+        {
+
+            try
+            {
+                ContentTypeCollection listContentTypes = list.ContentTypes;
+                cc.Load(listContentTypes, types => types.Include(type => type.Id, type => type.Name, type => type.Parent));
+                //var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == "document set 2"));
+                string SiteContentName = sitecontent;
+                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == SiteContentName));
+                
+                cc.ExecuteQuery();
+
+                ContentType targetDocumentSetContentType = result.FirstOrDefault();
+                ListItemCreationInformation newItemInfo = new ListItemCreationInformation();
+
+                newItemInfo.UnderlyingObjectType = FileSystemObjectType.Folder;
+                //newItemInfo.LeafName = "Document Set Kien2";
+                newItemInfo.LeafName = documentSetName;
+                
+                
+                //newItemInfo.FolderUrl = list.RootFolder.ServerRelativeUrl.ToString();
+                
+                ListItem newListItem = list.AddItem(newItemInfo);
+                newListItem["ContentTypeId"] = targetDocumentSetContentType.Id.ToString();
+                newListItem.Update();
+
+                Folder folder = newListItem.Folder;
+                return folder;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Unable to create document set");
+                Console.WriteLine(ex);
+                throw;
+            }
+        }
+
+        public static Folder CreateDocumentSetWithTaxonomy(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> taxonomy)
+        {
+            try
+            {
+                ContentTypeCollection listContentTypes = list.ContentTypes;
+                cc.Load(listContentTypes, types => types.Include(type => type.Id, type => type.Name, type => type.Parent));
+                //var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == "document set 2"));
+                string SiteContentName = sitecontent;
+                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == SiteContentName));
+                
+                cc.ExecuteQuery();
+
+                ContentType targetDocumentSetContentType = result.FirstOrDefault();
+                ListItemCreationInformation newItemInfo = new ListItemCreationInformation();
+
+                newItemInfo.UnderlyingObjectType = FileSystemObjectType.Folder;
+                newItemInfo.LeafName = documentSetName;
+                                
+                ListItem newListItem = list.AddItem(newItemInfo);
+                newListItem["ContentTypeId"] = targetDocumentSetContentType.Id.ToString();
+                newListItem.Update();
+                cc.ExecuteQuery();
+
+                var clientRuntimeContext = newListItem.Context;
+                for (int i = 0; i < taxonomy.Count; i++)
+                {
+                    var inputField = taxonomy.ElementAt(i);
+                    var fieldValue = inputField.Value;
+                    
+                    var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                    cc.Load(field);
+                    cc.ExecuteQuery();
+                    var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+
+                    Guid _id = taxKeywordField.TermSetId;
+                    string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                    TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                    {
+                        Label = fieldValue.ToString(),
+                        TermGuid = _termID,
+                        
+                    };
+                    
+                    
+                    taxKeywordField.SetFieldValueByValue(newListItem, termValue);
+                    taxKeywordField.Update();
+                    newListItem.SystemUpdate();
+                }
+
+
+                Folder folder = newListItem.Folder;
+                return folder;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Unable to create document set");
+                Console.WriteLine(ex);
+                throw;
+            }
+        }
+
+
         public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename, SMBCredential SMBCredential, SMB2Client client, NTStatus nts, ISMBFileStore fileStore)
         {
             
@@ -264,6 +426,7 @@ namespace SharePointAPI.Middleware
             if (status != NTStatus.STATUS_SUCCESS)
             {
                 Console.WriteLine(status);
+                return null;
             }
             else{
                 
@@ -366,6 +529,7 @@ namespace SharePointAPI.Middleware
 
                 for (int i = 0; i < fields.Count; i++)
                 {
+                    Console.WriteLine(fields[i].InternalName);
                     metadata.Add(new Metadata(){ Title = fields[i].Title, TypeAsString = fields[i].TypeAsString, InternalName = fields[i].InternalName});
                 }
                 
@@ -393,8 +557,8 @@ namespace SharePointAPI.Middleware
                         continue;
                     }
                     
-                    var field = fields.Find(f => f.InternalName == inputField.Key);
 
+                    var field = fields.Find(f => f.InternalName == inputField.Key);
 
                     if(field.TypeAsString.Equals("TaxonomyFieldType"))
                     {
@@ -419,6 +583,7 @@ namespace SharePointAPI.Middleware
                     }
                     else if(field.TypeAsString.Equals("User"))
                     {
+                        //use stringbuilder
                         var user = FieldUserValue.FromUser(inputField.Value.ToString());
                         item[inputField.Key] = user;
                         Console.WriteLine("Set field " + inputField.Key + " to " + user); 
