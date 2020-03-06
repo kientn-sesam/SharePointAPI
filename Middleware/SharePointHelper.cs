@@ -350,8 +350,8 @@ namespace SharePointAPI.Middleware
                 ContentTypeCollection listContentTypes = list.ContentTypes;
                 cc.Load(listContentTypes, types => types.Include(type => type.Id, type => type.Name, type => type.Parent));
                 //var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == "document set 2"));
-                string SiteContentName = sitecontent;
-                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == SiteContentName));
+                //string SiteContentName = sitecontent;
+                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == sitecontent));
                 
                 cc.ExecuteQuery();
 

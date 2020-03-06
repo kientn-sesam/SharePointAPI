@@ -77,7 +77,11 @@ namespace SharePointAPI.Controllers
             try
             {
                 Console.WriteLine(_baseurl);
-                
+                //Guid listGuid = new Guid(listname);
+                //List list = cc.Web.Lists.GetById(listGuid);
+                //var lists = cc.Web.Lists;
+                //cc.Load(lists);
+                //cc.ExecuteQuery();
                 List list = cc.Web.Lists.GetByTitle(listname);
                 
                 //List<string> fieldNames = SharePointHelper.GetVisibleFieldNames(cc, list);
@@ -135,6 +139,53 @@ namespace SharePointAPI.Controllers
             }
 
 
+        }
+
+
+        [HttpGet]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+
+        /// <summary>
+        /// Create a new doc
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     GET /api/sharepoint/lists?site=<sitename>
+        ///     
+        /// </remarks>
+        /// <param name="param">New document parameters</param>
+        /// <returns></returns>
+        public async Task<IActionResult> Lists([FromQuery(Name = "site")] string sitename)
+        {
+            string url = _baseurl + "sites/" + sitename;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List<JObject> listSP = new List<JObject>();
+
+                ListCollection lists = cc.Web.Lists;
+                cc.Load(lists);
+                await cc.ExecuteQueryAsync();
+
+                ///for (int i = 0; i < lists.Count; i++)
+                ///{
+                ///    List list = lists[i];
+                ///    foreach (KeyValuePair<string, Object> listProperty in list.)
+                ///    {
+                ///        
+                ///    }
+///
+                ///}
+
+                return new OkObjectResult(lists);
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
         }
         [HttpGet]
         [Produces("application/json")]
@@ -593,6 +644,7 @@ namespace SharePointAPI.Controllers
 
                         if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
                         {
+                           
                             var user = FieldUserValue.FromUser(fieldValue);
                             item[inputField.Key] = user;
                         }
@@ -989,156 +1041,195 @@ namespace SharePointAPI.Controllers
         [HttpPost]
         [Produces("application/json")]
         [Consumes("application/json")]
-        public async Task<IActionResult> Migration([FromBody] JArray param)
+        public async Task<IActionResult> Migration([FromBody] DocumentModel[] docs)
         {
-             // last batch is empty
-            if (param.ToArray().Length == 0)
+            if (docs.Length == 0)
             {
-                return null;
+                return new NoContentResult();
             }
 
-            //Console.WriteLine(param);
-            JObject tmpDoc = param.ToObject<List<JObject>>().FirstOrDefault();
-
-            //string site = doc["site"].ToString();
-            string site = tmpDoc["site"].ToString();
-            
-            string url = _baseurl + "sites/" + site;
-            string tmpList = tmpDoc["list"].ToString();
             SMB2Client client = new SMB2Client();
+            
+            string site = docs[0].site;
+            string url = _baseurl + "sites/" + site;
+            string listname = docs[0].list;
+            //Guid listGuid = new Guid(listname);
 
-            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            using (ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                SMBCredential SMBCredential = new SMBCredential(){ 
-                    username = Environment.GetEnvironmentVariable("smb_username"), 
-                    password = Environment.GetEnvironmentVariable("smb_password"), 
-                    domain = Environment.GetEnvironmentVariable("domain"),
-                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
-                    share = Environment.GetEnvironmentVariable("share"),
-                };
-
-                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
-                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
-
-                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
-                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
                 
-                List list = cc.Web.Lists.GetByTitle(tmpList);
-            
-                //cc.Load(list);
-                //cc.ExecuteQuery();
+                ///SMBCredential SMBCredential = new SMBCredential(){ 
+                ///    username = Environment.GetEnvironmentVariable("smb_username"), 
+                ///    password = Environment.GetEnvironmentVariable("smb_password"), 
+                ///    domain = Environment.GetEnvironmentVariable("domain"),
+                ///    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                ///    share = Environment.GetEnvironmentVariable("share"),
+                ///};
+///
+                ///var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                ///bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+///
+                ///NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ///ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
 
-                //List<Metadata> fields = SharePointHelper.GetFields(cc, list);
 
+                //List list = cc.Web.Lists.GetById(listGuid);
+                List list = cc.Web.Lists.GetByTitle(listname);
 
-                //FolderCollection folders = SharePointHelper.GetFolders(cc, list);
-                //string[] foldernames = SharePointHelper.GetFolderNames(cc, list, folders);
-                List<JObject> docs = param.ToObject<List<JObject>>();
-
-                for (int i = 0; i < docs.Count; i++)
+                for (int i = 0; i < docs.Length; i++)
                 {
-                    string filename = docs[i]["filename"].ToString();
-                    string file_url = docs[i]["file_url"].ToString();
-                    JObject inputFields = docs[i]["fields"] as JObject;
+                    string filename = docs[i].filename;
+                    string file_url = docs[i].file_url;
+                    var inputFields = docs[i].fields;
+                    var taxFields = docs[i].taxFields;
 
-                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
-                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
-                    //FieldCollection fields = list.Fields;
-                    
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                
                     if (newFile == null){
                         _logger.LogError("Failed to upload. Skip: " + filename);
                         continue;
                     }
 
                     File uploadFile;
-                    if (SharePointHelper.FolderJObjectExist(docs[i]) == false)
-                    {
+                    if(docs[i].foldername == null){
                         uploadFile = list.RootFolder.Files.Add(newFile);
                     }
-                    else
-                    {
-                        string foldername = docs[i]["foldername"].ToString();
+                    else{
+                        string foldername = docs[i].foldername;
+                        string sitecontent = docs[i].sitecontent;
                         
-                        Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+                        //Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+
+                        Folder folder = SharePointHelper.GetFolder(cc, list, foldername);
+                        if (folder == null && taxFields != null)
+                            folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, taxFields);
+                        else if (folder == null)
+                            folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername);
+                        
+                        //cc.ExecuteQuery();
                         uploadFile = folder.Files.Add(newFile);
                     }
 
                     _logger.LogInformation("Upload file: " + newFile.Url);
-                        
+
                     ListItem item = uploadFile.ListItemAllFields;
 
 
                     DateTime dtMin = new DateTime(1900,1,1);
                     Regex regex = new Regex(@"~t.*");
-                    foreach (KeyValuePair<string, JToken> inputField in inputFields)
-                    {
-
-                        if (inputField.Value == null || inputField.Value.ToString() == "" || inputField.Key.Equals("Modified"))
+                    var listItemFormUpdateValueColl = new List <ListItemFormUpdateValue>();
+                    if (inputFields != null)
+                    {    
+                        foreach (KeyValuePair<string, string> inputField in inputFields)
                         {
-                            continue;
-                        }
-                        
-                        string fieldValue = (string)inputField.Value;
-                        Match match = regex.Match(fieldValue);
-
-                        if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
-                        {
-                            var user = FieldUserValue.FromUser(fieldValue);
-                            item[inputField.Key] = user;
-                        }
-                        else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By"))
-                        {
-                            StringBuilder sb = new StringBuilder("i:0#.f|membership|");
-                            sb.Append(fieldValue);
-                            item[inputField.Key] = sb;
-
-                        }
-                        else if(match.Success)
-                        {
-                            fieldValue = fieldValue.Replace("~t","");
-                            if(DateTime.TryParse(fieldValue, out DateTime dt))
+                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
                             {
-                                if(dtMin <= dt){
-                                    item[inputField.Key] = dt;
-                                    _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
-                                }
-                                else
-                                {
-                                    continue;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            int tokenLength = inputField.Value.Count();
-
-                            if(tokenLength >= 1){
                                 continue;
+                            }
+                            
+
+                            string fieldValue = inputField.Value;
+                            Match match = regex.Match(fieldValue);
+
+                            if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                            {
+                                FieldUserValue user = FieldUserValue.FromUser(fieldValue);
+                                
+                                item[inputField.Key] = user;
+
+                            }
+                            //endre hard koding
+                            else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                            {
+                                StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                                sb.Append(fieldValue);
+                                item[inputField.Key] = sb;
+                            }
+                            else if(match.Success)
+                            {
+                                fieldValue = fieldValue.Replace("~t","");
+                                if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                {
+                                    if(dtMin <= dt){
+                                        item[inputField.Key] = dt;
+                                        _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
+                                    }
+                                    else
+                                    {
+                                        continue;
+                                    }
+                                }
                             }
                             else
                             {
                                 item[inputField.Key] = fieldValue;
                                 _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
-                                
+
                             }
+
+                            
+                            item.Update();
+                            
                         }
 
-                        
-                        item.Update();
+                        cc.ExecuteQuery();
                     }
+
+                    if (taxFields != null)
+                    {
+                        var clientRuntimeContext = item.Context;
+                        for (int t = 0; t < taxFields.Count; t++)
+                        {
+                            var inputField = taxFields.ElementAt(t);
+                            var fieldValue = inputField.Value;
+                            
+                            var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            cc.Load(field);
+                            cc.ExecuteQuery();
+                            var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+
+                            Guid _id = taxKeywordField.TermSetId;
+                            string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                            TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                            {
+                                Label = fieldValue.ToString(),
+                                TermGuid = _termID,
+                            };
+                            
+                            
+                            taxKeywordField.SetFieldValueByValue(item, termValue);
+                            taxKeywordField.Update();
+                        }
+                        
+                    }
+
+
                     //Modified needs to be updated last
-                    string strModified = inputFields["Modified"].ToString();
+                    string strModified = inputFields["Modified"];
                     Match matchModified = regex.Match(strModified);
+
+
                     if(matchModified.Success)
                     {
                         strModified = strModified.Replace("~t","");
+                        
+
                         if(DateTime.TryParse(strModified, out DateTime dt))
                         {
                                 item["Modified"] = dt;
-                                item.Update();
+
                         }
+                        item.Update();
                     }
+                    //var ver = uploadFile.Versions;
+                    //cc.Load(ver);
+                    //cc.ExecuteQuery();
+
+                    //uploadFile.CheckOut();
+                    
                     
                     try
                     {
@@ -1151,36 +1242,23 @@ namespace SharePointAPI.Controllers
                         Console.WriteLine(e);
                         continue;
                     }
-                    
+
 
                 }
-                    
-                    
-                /// 1. use finally block to close open connection or to clean unused objects.
-                /// 2. Use for-loop instead of foreach based on context (refer shared link)
-                /// 3. see if you can remove un-nesessary use of try catch block
-                /// 4. use timer to find out health of code  and real time consumed 
-                /// 5. try to use private methods whenever possible
-            
-                
-                //client.Logoff();
-                
-                //await cc.ExecuteQueryAsync();
-                
-                return new NoContentResult();
             }
             catch (System.Exception)
             {
                 
                 throw;
             }
-            finally{
-                
-                client.Logoff();
-                client.Disconnect();
+            finally
+            {
+                ///client.Logoff();
+                ///client.Disconnect();
             }
-            
-           
+
+            return new NoContentResult();
+
         }
 
 
@@ -1192,7 +1270,7 @@ namespace SharePointAPI.Controllers
              // last batch is empty
             if (param.ToArray().Length == 0)
             {
-                return null;
+                return new NoContentResult();
             }
 
             //Console.WriteLine(param);
@@ -1223,6 +1301,7 @@ namespace SharePointAPI.Controllers
                 ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
                 
                 List list = cc.Web.Lists.GetByTitle(tmpList);
+                
             
                 //cc.Load(list);
                 //cc.ExecuteQuery();
@@ -1428,7 +1507,7 @@ namespace SharePointAPI.Controllers
         {
             if (docs.Length == 0)
             {
-                return null;
+                return new NoContentResult();
             }
 
             SMB2Client client = new SMB2Client();
@@ -1436,6 +1515,7 @@ namespace SharePointAPI.Controllers
             string site = docs[0].site;
             string url = _baseurl + "sites/" + site;
             string listname = docs[0].list;
+            Guid listGuid = new Guid(listname);
 
             using (ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
@@ -1454,8 +1534,10 @@ namespace SharePointAPI.Controllers
 
                 NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
                 ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
-                
-                List list = cc.Web.Lists.GetByTitle(listname);
+
+
+                List list = cc.Web.Lists.GetById(listGuid);
+                //List list = cc.Web.Lists.GetByTitle(listname);
 
                 for (int i = 0; i < docs.Length; i++)
                 {
@@ -1465,7 +1547,7 @@ namespace SharePointAPI.Controllers
                     var taxFields = docs[i].taxFields;
 
                     FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
-                    //FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
                 
                     if (newFile == null){
                         _logger.LogError("Failed to upload. Skip: " + filename);
@@ -1500,89 +1582,96 @@ namespace SharePointAPI.Controllers
                     DateTime dtMin = new DateTime(1900,1,1);
                     Regex regex = new Regex(@"~t.*");
                     var listItemFormUpdateValueColl = new List <ListItemFormUpdateValue>();
-                    
-                    foreach (KeyValuePair<string, string> inputField in inputFields)
-                    {
-                        if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
+                    if (inputFields != null)
+                    {    
+                        foreach (KeyValuePair<string, string> inputField in inputFields)
                         {
-                            continue;
-                        }
-
-                        string fieldValue = inputField.Value;
-                        Match match = regex.Match(fieldValue);
-
-                        if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
-                        {
-                            var user = FieldUserValue.FromUser(fieldValue);
-                            item[inputField.Key] = user;
-                        }
-                        //endre hard koding
-                        else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
-                        {
-                            StringBuilder sb = new StringBuilder("i:0#.f|membership|");
-                            sb.Append(fieldValue);
-                            item[inputField.Key] = sb;
-                        }
-                        else if(match.Success)
-                        {
-                            fieldValue = fieldValue.Replace("~t","");
-                            if(DateTime.TryParse(fieldValue, out DateTime dt))
+                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
                             {
-                                if(dtMin <= dt){
-                                    item[inputField.Key] = dt;
-                                    _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
-                                }
-                                else
-                                {
-                                    continue;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            int tokenLength = inputField.Value.Count();
-
-                            if(tokenLength >= 1){
                                 continue;
+                            }
+                            if (inputField.Key.Equals("SPORConstructionNo"))
+                            {
+                                Console.WriteLine("stop");
+
+                            } 
+
+                            string fieldValue = inputField.Value;
+                            Match match = regex.Match(fieldValue);
+
+                            if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                            {
+                                FieldUserValue user = FieldUserValue.FromUser(fieldValue);
+                                
+                                item[inputField.Key] = user;
+
+                            }
+                            //endre hard koding
+                            else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                            {
+                                StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                                sb.Append(fieldValue);
+                                item[inputField.Key] = sb;
+                            }
+                            else if(match.Success)
+                            {
+                                fieldValue = fieldValue.Replace("~t","");
+                                if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                {
+                                    if(dtMin <= dt){
+                                        item[inputField.Key] = dt;
+                                        _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
+                                    }
+                                    else
+                                    {
+                                        continue;
+                                    }
+                                }
                             }
                             else
                             {
                                 item[inputField.Key] = fieldValue;
                                 _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
-                                
+
                             }
+
+                            
+                            item.Update();
+                            
                         }
 
-                        
-                        item.SystemUpdate();
-                        
-                    }
-
-
-                    var clientRuntimeContext = item.Context;
-                    for (int t = 0; t < taxFields.Count; t++)
-                    {
-                        var inputField = taxFields.ElementAt(t);
-                        var fieldValue = inputField.Value;
-                        
-                        var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
-                        cc.Load(field);
                         cc.ExecuteQuery();
-                        var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
-
-                        Guid _id = taxKeywordField.TermSetId;
-                        string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
-
-                        TaxonomyFieldValue termValue = new TaxonomyFieldValue()
-                        {
-                            Label = fieldValue.ToString(),
-                            TermGuid = _termID,
-                        };
-                        
-                        
-                        taxKeywordField.SetFieldValueByValue(item, termValue);
-                        taxKeywordField.Update();
                     }
+                    _logger.LogInformation("taxfield: " + taxFields);
+                    if (taxFields != null)
+                    {
+                        var clientRuntimeContext = item.Context;
+                        for (int t = 0; t < taxFields.Count; t++)
+                        {
+                            var inputField = taxFields.ElementAt(t);
+                            var fieldValue = inputField.Value;
+                            
+                            var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            cc.Load(field);
+                            cc.ExecuteQuery();
+                            var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+
+                            Guid _id = taxKeywordField.TermSetId;
+                            string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                            TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                            {
+                                Label = fieldValue.ToString(),
+                                TermGuid = _termID,
+                            };
+                            
+                            
+                            taxKeywordField.SetFieldValueByValue(item, termValue);
+                            taxKeywordField.Update();
+                        }
+                        
+                    }
+
 
                     //Modified needs to be updated last
                     string strModified = inputFields["Modified"];
@@ -1593,23 +1682,21 @@ namespace SharePointAPI.Controllers
                     {
                         strModified = strModified.Replace("~t","");
                         
-                        ListItemFormUpdateValue listItemFormUpdateValue = new ListItemFormUpdateValue();
-                        listItemFormUpdateValue.FieldName = "Modified";
-                        listItemFormUpdateValue.FieldValue = strModified;
-                        listItemFormUpdateValueColl.Add(listItemFormUpdateValue);
 
-                        /*if(DateTime.TryParse(strModified, out DateTime dt))
+                        if(DateTime.TryParse(strModified, out DateTime dt))
                         {
                                 item["Modified"] = dt;
 
-                        }*/
+                        }
+                        item.Update();
                     }
+                    //var ver = uploadFile.Versions;
+                    //cc.Load(ver);
+                    //cc.ExecuteQuery();
 
-                    item.ValidateUpdateListItem(listItemFormUpdateValueColl, true, "");
+                    //uploadFile.CheckOut();
                     
                     
-                    
-
                     try
                     {
                         await cc.ExecuteQueryAsync();
@@ -1638,6 +1725,336 @@ namespace SharePointAPI.Controllers
 
             return new NoContentResult();
 
+        }
+
+        [HttpGet]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public async Task<IActionResult> eDocsDokumentnavn([FromQuery(Name = "site")] string sitename,[FromQuery(Name = "list")] string listname, [FromQuery(Name = "eDocsDokumentnavn")] string eDocsDokumentnavn)
+        {
+            string url = _baseurl + "sites/" + sitename;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetByTitle(listname);
+                var cquery = new CamlQuery();
+                    cquery.ViewXml = string.Format(
+                        @"<View>  
+                            <Query> 
+                                <Where>
+                                    <Eq><FieldRef Name='eDocsDokumentnavn' />
+                                    <Value Type='Text'>{0}</Value></Eq>
+                                </Where> 
+                            </Query> 
+                        </View>", eDocsDokumentnavn);
+
+                var listitems = list.GetItems(cquery);
+                cc.Load(listitems);
+                await cc.ExecuteQueryAsync();
+
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+        [HttpGet]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        public int userId([FromQuery(Name = "site")] string sitename, [FromQuery(Name = "name")] string uname)
+        {
+            string url = _baseurl + "sites/" + sitename;
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                var otheruser = cc.Web.EnsureUser(uname);
+                cc.Load(otheruser, u => u.Id);
+                cc.ExecuteQuery();
+                
+                return otheruser.Id;
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+        }
+
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        /// <summary>
+        /// Use only on lists with over 5000 documents
+        /// 
+        /// eDocsDokumentnavn is a indexed field.
+        /// </summary>
+        /// <param name="docs"></param>
+        /// <returns></returns>
+        public async Task<IActionResult> documentfix([FromBody] DocumentModel[] docs)
+        {
+            if (docs.Length == 0)
+            {
+                return null;
+            }
+            string site = docs[0].site;
+            string url = _baseurl + "sites/" + site;
+            string listname = docs[0].list;
+            Guid listGuid = new Guid(listname);
+
+            using (ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                List list = cc.Web.Lists.GetById(listGuid);
+                for (int i = 0; i < docs.Length; i++)
+                {
+                    string filename = docs[i].filename;
+                    string file_url = docs[i].file_url;
+                    string foldername = docs[i].foldername;
+                    var inputFields = docs[i].fields;
+                    var taxFields = docs[i].taxFields;
+
+                    string eDocsDokumentnavn = inputFields["eDocsDokumentnavn"];
+                    var cquery = new CamlQuery();
+                    cquery.ViewXml = string.Format(
+                        @"<View>  
+                            <Query> 
+                                <Where>
+                                    <Eq><FieldRef Name='eDocsDokumentnavn' />
+                                    <Value Type='Text'>{0}</Value></Eq>
+                                </Where> 
+                            </Query> 
+                        </View>", eDocsDokumentnavn);
+
+                    var listitems = list.GetItems(cquery);
+                    cc.Load(listitems);
+                    await cc.ExecuteQueryAsync();
+
+                    Regex regex = new Regex(@"~t.*");
+                    DateTime dtMin = new DateTime(1900,1,1);
+                    if (listitems.Count > 0)
+                    {
+                        ListItem item = listitems[0];
+
+                        if (inputFields != null)
+                        {
+                            foreach (KeyValuePair<string, string> inputField in inputFields)
+                            {
+
+                                if (inputField.Value == null || inputField.Value == "")
+                                {
+                                    continue;
+                                }
+
+                                string fieldValue = inputField.Value;
+                                Match match = regex.Match(fieldValue);
+
+                                if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                                {
+                                    if (int.TryParse(fieldValue, out int uid))
+                                    {
+                                        item[inputField.Key] = new FieldUserValue{LookupId = uid};
+                                    }
+                                    else
+                                    {
+                                        FieldUserValue user = FieldUserValue.FromUser(fieldValue);
+                                        item[inputField.Key] = user;                                    
+                                    }
+
+                                }
+                                //endre hard koding
+                                else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                                {
+                                    string user = "i:0#.f|membership|" + fieldValue;
+                                    item[inputField.Key] = user;
+                                }
+                                else if(match.Success)
+                                {
+                                    fieldValue = fieldValue.Replace("~t","");
+                                    if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                    {
+                                        if(dtMin <= dt){
+                                            item[inputField.Key] = dt;
+                                            _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
+                                        }
+                                        else
+                                        {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    item[inputField.Key] = fieldValue;
+                                    _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
+                                        
+                                }
+                            }
+                            item.Update();
+                        }
+                        
+                        await cc.ExecuteQueryAsync();
+                    
+
+                    }
+                    else
+                    {
+                        _logger.LogInformation("file not found: " + eDocsDokumentnavn);
+                        continue;
+                    }
+                    
+                }
+                
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+            return new NoContentResult();
+        }
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        /// <summary>
+        /// Update existing document with SystemUpdate() to prevent version increment.
+        /// POST /api/sharepoint/document
+        /// </summary>
+        /// <param name="docs"></param>
+        /// <returns></returns>
+        public async Task<IActionResult> Document([FromBody] DocumentModel[] docs)
+        {
+            if (docs.Length == 0)
+            {
+                return null;
+            }
+
+            string site = docs[0].site;
+            string url = _baseurl + "sites/" + site;
+            string listname = docs[0].list;
+            Guid listGuid = new Guid(listname);
+
+            using (ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                var listItemFormUpdateValueColl = new List <ListItemFormUpdateValue>();
+                //List list = cc.Web.Lists.GetByTitle(listname);
+                List list = cc.Web.Lists.GetById(listGuid);
+                for (int i = 0; i < docs.Length; i++)
+                {
+                    string filename = docs[i].filename;
+                    string file_url = docs[i].file_url;
+                    string foldername = docs[i].foldername;
+                    var inputFields = docs[i].fields;
+                    var taxFields = docs[i].taxFields;
+
+                    Folder root = list.RootFolder;
+                    File file;
+
+                    if (foldername != null)
+                    {
+                        Folder folder = root.Folders.GetByUrl(foldername);
+                        file = folder.Files.GetByUrl(filename);
+                    }
+                    else
+                        file = root.Files.GetByUrl(filename);
+
+                    cc.Load(file);
+                    cc.ExecuteQuery();
+
+                    Regex regex = new Regex(@"~t.*");
+                    DateTime dtMin = new DateTime(1900,1,1);
+                    ListItem item = file.ListItemAllFields;
+                    if (inputFields != null)
+                    {
+                        foreach (KeyValuePair<string, string> inputField in inputFields)
+                        {
+
+                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
+                            {
+                                continue;
+                            }
+
+                            string fieldValue = inputField.Value;
+                            Match match = regex.Match(fieldValue);
+
+                            if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                            {
+                                FieldUserValue user = FieldUserValue.FromUser(fieldValue);
+                                
+                                item[inputField.Key] = user;
+
+                            }
+                            //endre hard koding
+                            else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                            {
+                                StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                                sb.Append(fieldValue);
+                                item[inputField.Key] = sb;
+                            }
+                            else if(match.Success)
+                            {
+                                fieldValue = fieldValue.Replace("~t","");
+                                if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                {
+                                    if(dtMin <= dt){
+                                        item[inputField.Key] = dt;
+                                        _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
+                                    }
+                                    else
+                                    {
+                                        continue;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                if (inputField.Key.Equals("eDocsAvdeling"))
+                                {
+                                    Console.WriteLine("stop");
+                                }
+                                int tokenLength = inputField.Value.Count();
+
+                                    item[inputField.Key] = fieldValue;
+                                    _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
+                                    
+                            }
+
+                            item.SystemUpdate();
+                        }
+                    }
+                    try
+                    {
+                        
+                        await cc.ExecuteQueryAsync();
+                    }
+                    catch (System.Exception)
+                    {
+                        _logger.LogDebug("file note found: " + filename);
+                        continue;
+                    }
+
+                }
+
+                
+                
+                
+
+
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+            return new NoContentResult();
         }
 
         [HttpGet]
@@ -1745,7 +2162,6 @@ namespace SharePointAPI.Controllers
             return new NoContentResult();
         }
 
-        
 
     }
 }
