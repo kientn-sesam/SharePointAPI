@@ -17,6 +17,8 @@ using SMBLibrary;
 using SMBLibrary.Client;
 using Microsoft.AspNetCore.Http;
 using SharePointAPI.Models;
+using Microsoft.AspNetCore.Mvc;
+
 
 
 namespace SharePointAPI.Middleware
@@ -342,6 +344,92 @@ namespace SharePointAPI.Middleware
                 throw;
             }
         }
+        public static Folder CreateFolder(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> inputFields, List<Metadata> fields)
+        {
+
+            try
+            {
+                ContentTypeCollection listContentTypes = list.ContentTypes;
+                cc.Load(listContentTypes, types => types.Include(type => type.Id, type => type.Name, type => type.Parent));
+                //var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == "document set 2"));
+                string SiteContentName = sitecontent;
+                var result = cc.LoadQuery(listContentTypes.Where(c => c.Name == SiteContentName));
+                
+                cc.ExecuteQuery();
+
+                ContentType targetDocumentSetContentType = result.FirstOrDefault();
+                ListItemCreationInformation newItemInfo = new ListItemCreationInformation();
+
+                newItemInfo.UnderlyingObjectType = FileSystemObjectType.Folder;
+                //newItemInfo.LeafName = "Document Set Kien2";
+                newItemInfo.LeafName = documentSetName;
+                
+                
+                //newItemInfo.FolderUrl = list.RootFolder.ServerRelativeUrl.ToString();
+                DateTime dtMin = new DateTime(1900,1,1);
+                Regex regex = new Regex(@"~t.*");
+                ListItem newListItem = list.AddItem(newItemInfo);
+                newListItem["ContentTypeId"] = targetDocumentSetContentType.Id.ToString();
+                newListItem.Update();
+                foreach (KeyValuePair<string, string> inputField in inputFields)
+                {
+                    if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
+                    {
+                        continue;
+                    }
+                    
+
+                    string fieldValue = inputField.Value;
+                    Match match = regex.Match(fieldValue);
+                    
+                    Metadata field = fields.Find(x => x.InternalName.Equals(inputField.Key));
+                    if (field.TypeAsString.Equals("User"))
+                    {
+                        int uid = SharePointHelper.GetUserId(cc, fieldValue);
+                        newListItem[inputField.Key] = new FieldUserValue{LookupId = uid};
+                    }
+                    //endre hard koding
+                    else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                    {
+                        StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                        sb.Append(fieldValue);
+                        newListItem[inputField.Key] = sb;
+                    }
+                    else if(match.Success)
+                    {
+                        fieldValue = fieldValue.Replace("~t","");
+                        if(DateTime.TryParse(fieldValue, out DateTime dt))
+                        {
+                            if(dtMin <= dt){
+                                newListItem[inputField.Key] = dt;
+                               
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        newListItem[inputField.Key] = fieldValue;
+                        
+
+                    }
+                    newListItem.Update();
+                }
+
+                Folder folder = newListItem.Folder;
+                return folder;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Unable to create document set");
+                Console.WriteLine(ex);
+                throw;
+            }
+        }
+        
 
         public static Folder CreateDocumentSetWithTaxonomy(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> taxonomy)
         {
@@ -710,6 +798,16 @@ namespace SharePointAPI.Middleware
 
                 return foldernames;
         }
+        public static int GetUserId(ClientContext cc, string email)
+        {
+            var otheruser = cc.Web.EnsureUser(email);
+            cc.Load(otheruser, u => u.Id);
+            cc.ExecuteQuery();
+
+            return otheruser.Id;
+        }
+
+
 
 
     }

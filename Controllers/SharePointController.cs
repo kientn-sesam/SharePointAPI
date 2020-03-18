@@ -163,23 +163,19 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                List<JObject> listSP = new List<JObject>();
+                List<ListModel> listSP = new List<ListModel>();
 
                 ListCollection lists = cc.Web.Lists;
                 cc.Load(lists);
                 await cc.ExecuteQueryAsync();
 
-                ///for (int i = 0; i < lists.Count; i++)
-                ///{
-                ///    List list = lists[i];
-                ///    foreach (KeyValuePair<string, Object> listProperty in list.)
-                ///    {
-                ///        
-                ///    }
-///
-                ///}
+                for (int i = 0; i < lists.Count; i++)
+                {
+                    List list = lists[i];
+                    listSP.Add(new ListModel(){id = list.Id.ToString(), title = list.Title});
+                }
 
-                return new OkObjectResult(lists);
+                return new OkObjectResult(listSP);
             }
             catch (System.Exception)
             {
@@ -197,7 +193,7 @@ namespace SharePointAPI.Controllers
         /// <remarks>
         /// Sample request:
         ///
-        ///     GET /api/sharepoint/documents?site=<sitename>&list=<listname>
+        ///     GET /api/sharepoint/folders?site=<sitename>&list=<listname>
         ///     
         /// </remarks>
         /// <param name="param">New document parameters</param>
@@ -1059,19 +1055,19 @@ namespace SharePointAPI.Controllers
             try
             {
                 
-                ///SMBCredential SMBCredential = new SMBCredential(){ 
-                ///    username = Environment.GetEnvironmentVariable("smb_username"), 
-                ///    password = Environment.GetEnvironmentVariable("smb_password"), 
-                ///    domain = Environment.GetEnvironmentVariable("domain"),
-                ///    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
-                ///    share = Environment.GetEnvironmentVariable("share"),
-                ///};
-///
-                ///var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
-                ///bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
-///
-                ///NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
-                ///ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+                SMBCredential SMBCredential = new SMBCredential(){ 
+                    username = Environment.GetEnvironmentVariable("smb_username"), 
+                    password = Environment.GetEnvironmentVariable("smb_password"), 
+                    domain = Environment.GetEnvironmentVariable("domain"),
+                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                    share = Environment.GetEnvironmentVariable("share"),
+                };
+
+                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+
+                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
 
 
                 //List list = cc.Web.Lists.GetById(listGuid);
@@ -1084,8 +1080,8 @@ namespace SharePointAPI.Controllers
                     var inputFields = docs[i].fields;
                     var taxFields = docs[i].taxFields;
 
-                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
-                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
+                    FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
+                    ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
                 
                     if (newFile == null){
                         _logger.LogError("Failed to upload. Skip: " + filename);
@@ -1253,8 +1249,8 @@ namespace SharePointAPI.Controllers
             }
             finally
             {
-                ///client.Logoff();
-                ///client.Disconnect();
+                client.Logoff();
+                client.Disconnect();
             }
 
             return new NoContentResult();
@@ -1503,6 +1499,11 @@ namespace SharePointAPI.Controllers
         [HttpPost]
         [Produces("application/json")]
         [Consumes("application/json")]
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="docs"></param>
+        /// <returns></returns>
         public async Task<IActionResult> MigrationOptimize([FromBody] DocumentModel[] docs)
         {
             if (docs.Length == 0)
@@ -1537,6 +1538,7 @@ namespace SharePointAPI.Controllers
 
 
                 List list = cc.Web.Lists.GetById(listGuid);
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
                 //List list = cc.Web.Lists.GetByTitle(listname);
 
                 for (int i = 0; i < docs.Length; i++)
@@ -1568,7 +1570,7 @@ namespace SharePointAPI.Controllers
                         if (folder == null && taxFields != null)
                             folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, taxFields);
                         else if (folder == null)
-                            folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername);
+                            folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername, inputFields, fields);
                         
                         //cc.ExecuteQuery();
                         uploadFile = folder.Files.Add(newFile);
@@ -1590,21 +1592,16 @@ namespace SharePointAPI.Controllers
                             {
                                 continue;
                             }
-                            if (inputField.Key.Equals("SPORConstructionNo"))
-                            {
-                                Console.WriteLine("stop");
-
-                            } 
+                            
 
                             string fieldValue = inputField.Value;
                             Match match = regex.Match(fieldValue);
-
-                            if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                            
+                            Metadata field = fields.Find(x => x.InternalName.Equals(inputField.Key));
+                            if (field.TypeAsString.Equals("User"))
                             {
-                                FieldUserValue user = FieldUserValue.FromUser(fieldValue);
-                                
-                                item[inputField.Key] = user;
-
+                                int uid = SharePointHelper.GetUserId(cc, fieldValue);
+                                item[inputField.Key] = new FieldUserValue{LookupId = uid};
                             }
                             //endre hard koding
                             else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
@@ -1640,7 +1637,6 @@ namespace SharePointAPI.Controllers
                             
                         }
 
-                        cc.ExecuteQuery();
                     }
                     _logger.LogInformation("taxfield: " + taxFields);
                     if (taxFields != null)
@@ -1770,6 +1766,7 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
+                
                 var otheruser = cc.Web.EnsureUser(uname);
                 cc.Load(otheruser, u => u.Id);
                 cc.ExecuteQuery();
@@ -2080,6 +2077,10 @@ namespace SharePointAPI.Controllers
             }
 
         }
+
+        
+
+
 
         [HttpPost]
         [Produces("application/json")]
