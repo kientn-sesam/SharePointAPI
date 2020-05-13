@@ -172,7 +172,7 @@ namespace SharePointAPI.Controllers
                 for (int i = 0; i < lists.Count; i++)
                 {
                     List list = lists[i];
-                    listSP.Add(new ListModel(){id = list.Id.ToString(), title = list.Title});
+                    listSP.Add(new ListModel(){id = list.Id.ToString(), title = list.Title, templateurl = list.DocumentTemplateUrl});
                 }
 
                 return new OkObjectResult(listSP);
@@ -206,7 +206,7 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                Console.WriteLine(_baseurl);
+                Console.WriteLine(url);
                 
                 List list = cc.Web.Lists.GetByTitle(listname);
                 
@@ -231,6 +231,8 @@ namespace SharePointAPI.Controllers
                     for (int fs = 0; fs < folders.Count; fs++)
                     {
                         string foldername = folders[fs].Name;
+                        if(foldername.Equals("Forms"))
+                            continue;
                         var json = new JObject();
                         json.Add(new JProperty("foldername", foldername));
                         ListItem item = folders[fs].ListItemAllFields;
@@ -238,6 +240,7 @@ namespace SharePointAPI.Controllers
                         {
                             if (field.Value != null)
                             {
+                                
                                 Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
                                 var match = rg.Match(field.Value.ToString());
                                 //Check Taxfields
@@ -271,8 +274,9 @@ namespace SharePointAPI.Controllers
                                 {
                                     json.Add(new JProperty(field.Key, field.Value.ToString()));
                                 }
-
                             }
+
+                            
 
                         }
 
@@ -1072,6 +1076,7 @@ namespace SharePointAPI.Controllers
 
                 //List list = cc.Web.Lists.GetById(listGuid);
                 List list = cc.Web.Lists.GetByTitle(listname);
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
 
                 for (int i = 0; i < docs.Length; i++)
                 {
@@ -1100,7 +1105,7 @@ namespace SharePointAPI.Controllers
 
                         Folder folder = SharePointHelper.GetFolder(cc, list, foldername);
                         if (folder == null && taxFields != null)
-                            folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, taxFields);
+                            folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, inputFields, fields, taxFields);
                         else if (folder == null)
                             folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername);
                         
@@ -1515,6 +1520,7 @@ namespace SharePointAPI.Controllers
             
             string site = docs[0].site;
             string url = _baseurl + "sites/" + site;
+            Console.WriteLine(url);
             string listname = docs[0].list;
             Guid listGuid = new Guid(listname);
 
@@ -1538,6 +1544,7 @@ namespace SharePointAPI.Controllers
 
 
                 List list = cc.Web.Lists.GetById(listGuid);
+
                 List<Metadata> fields = SharePointHelper.GetFields(cc, list);
                 //List list = cc.Web.Lists.GetByTitle(listname);
 
@@ -1547,6 +1554,8 @@ namespace SharePointAPI.Controllers
                     string file_url = docs[i].file_url;
                     var inputFields = docs[i].fields;
                     var taxFields = docs[i].taxFields;
+                    var taxListFields = docs[i].taxListFields;
+
 
                     FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename, SMBCredential, client, nts, fileStore);
                     ///FileCreationInformation newFile = SharePointHelper.GetFileCreationInformation(file_url, filename);
@@ -1567,10 +1576,16 @@ namespace SharePointAPI.Controllers
                         //Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
 
                         Folder folder = SharePointHelper.GetFolder(cc, list, foldername);
-                        if (folder == null && taxFields != null)
-                            folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, taxFields);
-                        else if (folder == null)
-                            folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername, inputFields, fields);
+                        if (folder == null){
+                            if(taxFields != null){
+                                folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, inputFields, fields, taxFields);
+                            }
+                            else
+                            {
+                                folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername, inputFields, fields);
+                            }
+
+                        }
                         
                         //cc.ExecuteQuery();
                         uploadFile = folder.Files.Add(newFile);
@@ -1579,6 +1594,9 @@ namespace SharePointAPI.Controllers
                     _logger.LogInformation("Upload file: " + newFile.Url);
 
                     ListItem item = uploadFile.ListItemAllFields;
+                    cc.Load(item);
+                    cc.ExecuteQuery();
+                    item["Title"] = filename;
 
 
                     DateTime dtMin = new DateTime(1900,1,1);
@@ -1588,7 +1606,7 @@ namespace SharePointAPI.Controllers
                     {    
                         foreach (KeyValuePair<string, string> inputField in inputFields)
                         {
-                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
+                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified") || inputField.Key.Equals("SPORResponsibleRetired"))
                             {
                                 continue;
                             }
@@ -1601,7 +1619,17 @@ namespace SharePointAPI.Controllers
                             if (field.TypeAsString.Equals("User"))
                             {
                                 int uid = SharePointHelper.GetUserId(cc, fieldValue);
-                                item[inputField.Key] = new FieldUserValue{LookupId = uid};
+
+                                if(uid == 0){
+                                    //user does not exist in AD. 
+                                    //item["SPORResponsibleRetired"] = fieldValue;
+                                    continue;
+                                }
+                                else
+                                {
+                                    item[inputField.Key] = new FieldUserValue{LookupId = uid};
+                                    
+                                }
                             }
                             //endre hard koding
                             else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
@@ -1617,7 +1645,6 @@ namespace SharePointAPI.Controllers
                                 {
                                     if(dtMin <= dt){
                                         item[inputField.Key] = dt;
-                                        _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
                                     }
                                     else
                                     {
@@ -1628,17 +1655,16 @@ namespace SharePointAPI.Controllers
                             else
                             {
                                 item[inputField.Key] = fieldValue;
-                                _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
 
                             }
 
                             
                             item.Update();
                             
+                            
                         }
-
                     }
-                    _logger.LogInformation("taxfield: " + taxFields);
+                    cc.ExecuteQuery();
                     if (taxFields != null)
                     {
                         var clientRuntimeContext = item.Context;
@@ -1646,6 +1672,10 @@ namespace SharePointAPI.Controllers
                         {
                             var inputField = taxFields.ElementAt(t);
                             var fieldValue = inputField.Value;
+                            if (fieldValue == null || fieldValue.Equals(""))
+                            {
+                                continue;
+                            }
                             
                             var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
                             cc.Load(field);
@@ -1667,6 +1697,44 @@ namespace SharePointAPI.Controllers
                         }
                         
                     }
+                    if (taxListFields != null)
+                    {
+                        var clientRuntimeContext = item.Context;
+                        for (int t = 0; t < taxListFields.Count; t++)
+                        {
+                            var inputField = taxListFields.ElementAt(t);
+                            var fieldListValue = inputFields.Values;
+
+                            if (fieldListValue == null)
+                            {
+                                continue;
+                            }
+                            
+                            var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            cc.Load(field);
+                            cc.ExecuteQuery();
+
+                            var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+                            Guid _id = taxKeywordField.TermSetId;
+                            foreach (var fieldValue in fieldListValue)
+                            {
+                                string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                                TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                                {
+                                    Label = fieldValue.ToString(),
+                                    TermGuid = _termID,
+                                };
+                                
+                                taxKeywordField.SetFieldValueByValue(item, termValue);
+                                taxKeywordField.Update();
+                                
+                            }
+
+
+                            
+                        }
+                    }
 
 
                     //Modified needs to be updated last
@@ -1686,11 +1754,6 @@ namespace SharePointAPI.Controllers
                         }
                         item.Update();
                     }
-                    //var ver = uploadFile.Versions;
-                    //cc.Load(ver);
-                    //cc.ExecuteQuery();
-
-                    //uploadFile.CheckOut();
                     
                     
                     try
@@ -1760,6 +1823,11 @@ namespace SharePointAPI.Controllers
         [HttpGet]
         [Produces("application/json")]
         [Consumes("application/json")]
+        /// <summary>
+        /// Return user id
+        /// </summary>
+        /// <param name=""site""></param>
+        /// <returns></returns>
         public int userId([FromQuery(Name = "site")] string sitename, [FromQuery(Name = "name")] string uname)
         {
             string url = _baseurl + "sites/" + sitename;
@@ -1817,15 +1885,33 @@ namespace SharePointAPI.Controllers
 
                     string eDocsDokumentnavn = inputFields["eDocsDokumentnavn"];
                     var cquery = new CamlQuery();
-                    cquery.ViewXml = string.Format(
-                        @"<View>  
-                            <Query> 
-                                <Where>
-                                    <Eq><FieldRef Name='eDocsDokumentnavn' />
-                                    <Value Type='Text'>{0}</Value></Eq>
-                                </Where> 
-                            </Query> 
-                        </View>", eDocsDokumentnavn);
+                    if(foldername == null){
+                            cquery.ViewXml = string.Format(
+                            @"<View>  
+                                <Query> 
+                                    <Where>
+                                        <Eq><FieldRef Name='eDocsDokumentnavn' />
+                                        <Value Type='Text'>{0}</Value></Eq>
+                                    </Where> 
+                                </Query> 
+                            </View>", eDocsDokumentnavn);
+
+                    }
+                    else
+                    {
+                        cquery.ViewXml = string.Format(
+                            @"<View>  
+                                <Query> 
+                                    <Where>
+                                        <Eq><FieldRef Name='eDocsDokumentnavn' />
+                                        <Value Type='Text'>{0}</Value></Eq>
+                                        <Eq><FieldRef Name='FileDirRef' />
+                                        <Value Type='Text'>{1}</Value></Eq>
+                                    </Where> 
+                                </Query> 
+                            </View>", eDocsDokumentnavn, foldername);
+                        
+                    }
 
                     var listitems = list.GetItems(cquery);
                     cc.Load(listitems);
@@ -1962,8 +2048,8 @@ namespace SharePointAPI.Controllers
                     else
                         file = root.Files.GetByUrl(filename);
 
-                    cc.Load(file);
-                    cc.ExecuteQuery();
+                    //cc.Load(file);
+                    //cc.ExecuteQuery();
 
                     Regex regex = new Regex(@"~t.*");
                     DateTime dtMin = new DateTime(1900,1,1);
@@ -2002,7 +2088,7 @@ namespace SharePointAPI.Controllers
                                 {
                                     if(dtMin <= dt){
                                         item[inputField.Key] = dt;
-                                        _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
+                                        
                                     }
                                     else
                                     {
@@ -2012,14 +2098,9 @@ namespace SharePointAPI.Controllers
                             }
                             else
                             {
-                                if (inputField.Key.Equals("eDocsAvdeling"))
-                                {
-                                    Console.WriteLine("stop");
-                                }
                                 int tokenLength = inputField.Value.Count();
-
-                                    item[inputField.Key] = fieldValue;
-                                    _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
+                                item[inputField.Key] = fieldValue;
+                                    
                                     
                             }
 
@@ -2136,16 +2217,19 @@ namespace SharePointAPI.Controllers
             try
             {
                 List list = cc.Web.Lists.GetByTitle(listname);
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
 
                 for (int i = 0; i < docs.Length; i++)
                 {
                     string foldername = docs[i].foldername;
                     string sitecontent = docs[i].sitecontent;
                     var taxonomies = docs[i].taxFields;
+                    var inputFields = docs[i].fields;
                     
                     //Folder folder;
                     if (taxonomies != null)
-                        SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, taxonomies);
+                    
+                        SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, inputFields, fields, taxonomies);
                     else
                         SharePointHelper.CreateFolder(cc, list, sitecontent, foldername);
 

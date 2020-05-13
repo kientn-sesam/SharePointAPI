@@ -46,6 +46,11 @@ namespace SharePointAPI.Middleware
                 AuthenticationMode = ClientAuthenticationMode.Default,
                 Credentials = new SharePointOnlineCredentials(username, secure)
             };
+            
+            cc.ExecutingWebRequest += delegate (object sender, WebRequestEventArgs e)
+            {
+                e.WebRequestExecutor.WebRequest.UserAgent = "ISV|Villegder|GovernanceCheck/1.0";
+            };
 
             return cc;
         }

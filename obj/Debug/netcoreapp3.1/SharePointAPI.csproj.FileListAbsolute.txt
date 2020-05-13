@@ -1,7 +1,6 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/appsettings.Development.json
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/appsettings.json
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/Properties/launchSettings.json
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharePointAPI
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharePointAPI.deps.json
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharePointAPI.runtimeconfig.json
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharePointAPI.runtimeconfig.dev.json
@@ -133,7 +132,6 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/Microsoft.VisualBasic.Core.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/Microsoft.VisualBasic.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/Microsoft.Win32.Primitives.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/Microsoft.Win32.Registry.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/mscorlib.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/netstandard.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.AppContext.dll
@@ -158,7 +156,6 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.Contracts.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.Debug.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.DiagnosticSource.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.EventLog.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.FileVersionInfo.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.Process.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Diagnostics.StackTrace.dll
@@ -184,7 +181,6 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.FileSystem.Watcher.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.IsolatedStorage.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.MemoryMappedFiles.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.Pipelines.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.Pipes.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.IO.UnmanagedMemoryStream.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Linq.dll
@@ -240,19 +236,14 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Runtime.Serialization.Json.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Runtime.Serialization.Primitives.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Runtime.Serialization.Xml.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.AccessControl.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Claims.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Algorithms.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Cng.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Csp.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Encoding.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Primitives.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.X509Certificates.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Cryptography.Xml.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Permissions.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Principal.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.Principal.Windows.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Security.SecureString.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.ServiceModel.Web.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.ServiceProcess.dll
@@ -278,7 +269,6 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Web.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Web.HttpUtility.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Windows.dll
-/Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Windows.Extensions.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Xml.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Xml.Linq.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/refs/System.Xml.ReaderWriter.dll
@@ -342,3 +332,5 @@
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SharpCifs.Std.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/SMBLibrary.dll
 /Users/kientn/codes/SharePointAPI/bin/Debug/netcoreapp3.1/Utilities.dll
+/Users/kientn/codes/SharePointAPI/obj/Debug/netcoreapp3.1/SharePointAPI.csproj.CoreCompileInputs.cache
+/Users/kientn/codes/SharePointAPI/obj/Debug/netcoreapp3.1/SharePointAPI.genruntimeconfig.cache

@@ -13,6 +13,7 @@ namespace SharePointAPI.Models
         public string site { get; set; }
         public IDictionary<string, string> fields { get; set; }
         public IDictionary<string, string> taxFields { get; set; }
+        public IDictionary<string, List<string>> taxListFields { get; set; }
 
     }
 }

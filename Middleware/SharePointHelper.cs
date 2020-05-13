@@ -229,7 +229,7 @@ namespace SharePointAPI.Middleware
                 return folder;
             }
             catch (System.Exception)
-            {
+        {
                 return null;
             }
 
@@ -344,7 +344,7 @@ namespace SharePointAPI.Middleware
                 throw;
             }
         }
-        public static Folder CreateFolder(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> inputFields, List<Metadata> fields)
+    public static Folder CreateFolder(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> inputFields, List<Metadata> fields)
         {
 
             try
@@ -431,7 +431,7 @@ namespace SharePointAPI.Middleware
         }
         
 
-        public static Folder CreateDocumentSetWithTaxonomy(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> taxonomy)
+        public static Folder CreateDocumentSetWithTaxonomy(ClientContext cc, List list, string sitecontent, string documentSetName, IDictionary<string, string> inputFields, List<Metadata> fields, IDictionary<string, string> taxonomy)
         {
             try
             {
@@ -478,8 +478,59 @@ namespace SharePointAPI.Middleware
                     
                     taxKeywordField.SetFieldValueByValue(newListItem, termValue);
                     taxKeywordField.Update();
-                    newListItem.SystemUpdate();
+                    newListItem.Update();
                 }
+
+                DateTime dtMin = new DateTime(1900,1,1);
+                Regex regex = new Regex(@"~t.*");
+                foreach (KeyValuePair<string, string> inputField in inputFields)
+                {
+                    if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified"))
+                    {
+                        continue;
+                    }
+                    
+
+                    string fieldValue = inputField.Value;
+                    Match match = regex.Match(fieldValue);
+                    
+                    Metadata field = fields.Find(x => x.InternalName.Equals(inputField.Key));
+                    if (field.TypeAsString.Equals("User"))
+                    {
+                        int uid = SharePointHelper.GetUserId(cc, fieldValue);
+                        newListItem[inputField.Key] = new FieldUserValue{LookupId = uid};
+                    }
+                    //endre hard koding
+                    else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                    {
+                        StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                        sb.Append(fieldValue);
+                        newListItem[inputField.Key] = sb;
+                    }
+                    else if(match.Success)
+                    {
+                        fieldValue = fieldValue.Replace("~t","");
+                        if(DateTime.TryParse(fieldValue, out DateTime dt))
+                        {
+                            if(dtMin <= dt){
+                                newListItem[inputField.Key] = dt;
+                               
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        newListItem[inputField.Key] = fieldValue;
+                        
+
+                    }
+                    newListItem.Update();
+                }
+
 
 
                 Folder folder = newListItem.Folder;
@@ -617,7 +668,29 @@ namespace SharePointAPI.Middleware
 
                 for (int i = 0; i < fields.Count; i++)
                 {
-                    Console.WriteLine(fields[i].InternalName);
+
+                    metadata.Add(new Metadata(){ Title = fields[i].Title, TypeAsString = fields[i].TypeAsString, InternalName = fields[i].InternalName});
+                }
+                
+                return metadata;                
+            }
+            catch (System.Exception ex)
+            {
+                Console.WriteLine(ex);   
+                throw;
+            }
+           
+        }
+        public static List<Metadata> GetFields(List list)
+        {
+            try
+            {
+                List<Metadata> metadata = new List<Metadata>();
+
+                FieldCollection fields = list.Fields;
+
+                for (int i = 0; i < fields.Count; i++)
+                {
                     metadata.Add(new Metadata(){ Title = fields[i].Title, TypeAsString = fields[i].TypeAsString, InternalName = fields[i].InternalName});
                 }
                 
@@ -800,11 +873,19 @@ namespace SharePointAPI.Middleware
         }
         public static int GetUserId(ClientContext cc, string email)
         {
-            var otheruser = cc.Web.EnsureUser(email);
-            cc.Load(otheruser, u => u.Id);
-            cc.ExecuteQuery();
+            try
+            {
+                var otheruser = cc.Web.EnsureUser(email);
+                cc.Load(otheruser, u => u.Id);
+                cc.ExecuteQuery();
 
-            return otheruser.Id;
+                return otheruser.Id;
+                
+            }
+            catch (System.Exception)
+            {                
+                return 0;
+            }
         }
 
 

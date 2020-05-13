@@ -4,5 +4,6 @@ namespace SharePointAPI.Models
     {
         public string id{ get; set; }
         public string title { get; set; }
+        public string templateurl { get; set; }
     }
 }
