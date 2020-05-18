@@ -1885,7 +1885,7 @@ namespace SharePointAPI.Controllers
 
                     string eDocsDokumentnavn = inputFields["eDocsDokumentnavn"];
                     var cquery = new CamlQuery();
-                    if(foldername == null){
+                    if(string.IsNullOrEmpty(foldername)){
                             cquery.ViewXml = string.Format(
                             @"<View>  
                                 <Query> 
@@ -1921,66 +1921,71 @@ namespace SharePointAPI.Controllers
                     DateTime dtMin = new DateTime(1900,1,1);
                     if (listitems.Count > 0)
                     {
-                        ListItem item = listitems[0];
-
-                        if (inputFields != null)
+                        //ListItem item = listitems[0];
+                        foreach (var item in listitems)
                         {
-                            foreach (KeyValuePair<string, string> inputField in inputFields)
+                            if (filename.Equals(item["FileLeafRef"]))
                             {
-
-                                if (inputField.Value == null || inputField.Value == "")
+                                
+                                _logger.LogInformation("fix: " + filename);
+                                if (inputFields != null)
                                 {
-                                    continue;
-                                }
-
-                                string fieldValue = inputField.Value;
-                                Match match = regex.Match(fieldValue);
-
-                                if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
-                                {
-                                    if (int.TryParse(fieldValue, out int uid))
+                                    foreach (KeyValuePair<string, string> inputField in inputFields)
                                     {
-                                        item[inputField.Key] = new FieldUserValue{LookupId = uid};
-                                    }
-                                    else
-                                    {
-                                        FieldUserValue user = FieldUserValue.FromUser(fieldValue);
-                                        item[inputField.Key] = user;                                    
-                                    }
 
-                                }
-                                //endre hard koding
-                                else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
-                                {
-                                    string user = "i:0#.f|membership|" + fieldValue;
-                                    item[inputField.Key] = user;
-                                }
-                                else if(match.Success)
-                                {
-                                    fieldValue = fieldValue.Replace("~t","");
-                                    if(DateTime.TryParse(fieldValue, out DateTime dt))
-                                    {
-                                        if(dtMin <= dt){
-                                            item[inputField.Key] = dt;
-                                            _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
-                                        }
-                                        else
+                                        if (inputField.Value == null || inputField.Value == "")
                                         {
                                             continue;
                                         }
+
+                                        string fieldValue = inputField.Value;
+                                        Match match = regex.Match(fieldValue);
+
+                                        if (inputField.Key.Equals("Author") || inputField.Key.Equals("Editor"))
+                                        {
+                                            if (int.TryParse(fieldValue, out int uid))
+                                            {
+                                                item[inputField.Key] = new FieldUserValue{LookupId = uid};
+                                            }
+                                            else
+                                            {
+                                                FieldUserValue user = FieldUserValue.FromUser(fieldValue);
+                                                item[inputField.Key] = user;                                    
+                                            }
+
+                                        }
+                                        //endre hard koding
+                                        else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                                        {
+                                            string user = "i:0#.f|membership|" + fieldValue;
+                                            item[inputField.Key] = user;
+                                        }
+                                        else if(match.Success)
+                                        {
+                                            fieldValue = fieldValue.Replace("~t","");
+                                            if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                            {
+                                                if(dtMin <= dt){
+                                                    item[inputField.Key] = dt;
+                                                }
+                                                else
+                                                {
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            item[inputField.Key] = fieldValue;                                                
+                                        }
                                     }
-                                }
-                                else
-                                {
-                                    item[inputField.Key] = fieldValue;
-                                    _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
-                                        
+                                    item.Update();
                                 }
                             }
-                            item.Update();
                         }
                         
                         await cc.ExecuteQueryAsync();
+                        _logger.LogInformation("updated: " + filename);
                     
 
                     }

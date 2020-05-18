@@ -63,7 +63,7 @@ namespace SharePointAPI.Controllers
         {
             if (docs.Length == 0)
             {
-                return null;
+                return new NoContentResult();
             }
             string site = docs[0].site;
             string url = _baseurl + "sites/" + site;
@@ -76,10 +76,14 @@ namespace SharePointAPI.Controllers
                 List list = cc.Web.Lists.GetById(listGuid);
                 cc.Load(list);
                 cc.ExecuteQuery();
+                Console.WriteLine(JsonConvert.SerializeObject(docs,Formatting.Indented));
 
                 List<Metadata> fields = SharePointHelper.GetFields(cc, list);
                 for (int i = 0; i < docs.Length; i++)
                 {
+                    Console.WriteLine("------------------------------------------------------");
+                    Console.WriteLine("Updating:");
+                    Console.WriteLine(JsonConvert.SerializeObject(docs[i],Formatting.Indented));
                     string foldername = docs[i].foldername;
                     var inputFields = docs[i].fields;
                     var taxFields = docs[i].taxFields;
@@ -143,8 +147,10 @@ namespace SharePointAPI.Controllers
                     }
                     
                     await cc.ExecuteQueryAsync();
+                    Console.WriteLine("updated: " + foldername);
+                    Console.WriteLine("------------------------------------------------------");
 
-                    if (taxFields != null)
+                    if (taxFields.Count > 0)
                     {
                         var clientRuntimeContext = item.Context;
                         for (int t = 0; t < taxFields.Count; t++)
@@ -1086,6 +1092,8 @@ namespace SharePointAPI.Controllers
         public async Task<IActionResult> UpdateBigLibrary([FromBody] DocumentModel[] docs)
         {
             //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
+
+            Console.WriteLine("count: " + docs.Length);
             if (docs.Length == 0)
             {
                 return null;
@@ -1127,7 +1135,6 @@ namespace SharePointAPI.Controllers
                     items.AddRange(listItemCollection);
                     //Reset the current pagination info
                     camlQuery.ListItemCollectionPosition = listItemCollection.ListItemCollectionPosition;
-                    break;
                 } while (camlQuery.ListItemCollectionPosition != null);
 
                 
@@ -1142,12 +1149,12 @@ namespace SharePointAPI.Controllers
                         string foldername = docs[i].foldername;
                         var inputFields = docs[i].fields;
                         var taxFields = docs[i].taxFields;
-                        bool found = false;
+                        Console.WriteLine("searching: " + filename);
+
                         foreach (var item in items)
                         {
                             if (filename.Equals(item["FileLeafRef"]))
                             {
-                                found = true;
                                 Console.WriteLine("updating: " +  filename);
                                 
                                 item["Title"] = filename;
@@ -1204,15 +1211,111 @@ namespace SharePointAPI.Controllers
 
                                 items.Remove(item);
                             }
-
-                        }
-                        if (found == false)
-                        {
-                            _logger.LogInformation(filename + " not found");
                         }
                     }
                 }
                 
+
+
+
+                return new NoContentResult();
+            }
+            catch (System.Exception)
+            {
+                
+                throw;
+            }
+
+
+        }
+        
+        
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+
+        /// <summary>
+        /// Get all documents in library
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     GET /api/document/updatetitlebiglibrary
+        ///     update documents title field on big libraries. 
+        ///     
+        /// </remarks>
+        /// <param name="param">New document parameters</param>
+        /// <returns></returns>
+        public async Task<IActionResult> UpdateTitle([FromBody] DocumentModel[] docs)
+        {
+            //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
+
+            Console.WriteLine("count: " + docs.Length);
+            if (docs.Length == 0)
+            {
+                return null;
+            }
+            string site = docs[0].site;
+            string url = _baseurl + "sites/" + site;
+            string listname = docs[0].list;
+            Guid listGuid = new Guid(listname);
+            
+            using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                cc.RequestTimeout = -1;
+                Console.WriteLine(_baseurl);
+                
+                List list = cc.Web.Lists.GetById(listGuid);
+                cc.Load(list, 
+                    l => l.EntityTypeName,
+                    l => l.Fields.Include(
+                        f => f.InternalName,
+                        f => f.Title,
+                        f => f.TypeAsString
+                    ));
+                cc.ExecuteQuery();
+                
+                CamlQuery camlQuery = new CamlQuery();
+                camlQuery.ViewXml = string.Format(
+                            @"<View Scope='Recursive'> 
+                                <Query> 
+                                    <Where>
+                                        <IsNull><FieldRef Name='Title' /></IsNull>
+                                    </Where> 
+                                </Query> 
+                                <RowLimit Paged='TRUE'>100</RowLimit>
+                            </View>");
+                //camlQuery.ViewXml = "<View Scope='RecursiveAll'><RowLimit>150</RowLimit></View>";
+                
+                int counter = 0;
+                List<ListItem> items = new List<ListItem>();
+                //List<string> fieldNames = SharePointHelper.GetVisibleFieldNames(cc, list);
+                do
+                {
+                    ListItemCollection listItemCollection = list.GetItems(camlQuery);
+                    cc.Load(listItemCollection);
+                    await cc.ExecuteQueryAsync();
+                    
+                    foreach (var item in listItemCollection)
+                    {
+                        counter++;
+
+                        item["Title"] = item["FileLeafRef"];
+                        item.SystemUpdate();
+                        Console.WriteLine(counter + " " + item["Title"]);
+
+                    
+                    }
+                    await cc.ExecuteQueryAsync();
+
+                    //Adding the current set of ListItems in our single buffer
+                    //items.AddRange(listItemCollection);
+                    //Reset the current pagination info
+                    camlQuery.ListItemCollectionPosition = listItemCollection.ListItemCollectionPosition;
+                } while (camlQuery.ListItemCollectionPosition != null);
+
+               
 
 
 
