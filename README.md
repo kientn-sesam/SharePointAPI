@@ -47,6 +47,7 @@ Endpoints:
     	}
     }  
 * Upload file to sharepoint
+    ```
     POST /api/sharepoint/UploadToSharePoint
     {
         "list":"Dokumentasjon",
@@ -55,15 +56,24 @@ Endpoints:
         "site": "sporaevk",
         "filename": "Postnummerregister-Excel.xlsx"
     }
+    ```
 * Upload file through SMB fileshare and update metadata
+    ```
     POST /api/sharepoint/migration
+    ```
 * Upload file through SMB fileshare and update metadata
+    ```
     POST /api/sharepoint/migrationoptimize
+    ```
 * Update metadata.
+    ```
     POST /api/sharepoint/documentfix
     NB! works only on library that has eDocsDokumentnavn field name. Use only on lists with over 5000 documents
+    ```
 * Update existing document with SystemUpdate() to prevent version increment.
+    ```
     POST /api/sharepoint/document
+    ```
 * Enrich metadata on documentset only
     POST /api/document/folderenrichment
 * Enrich sharepoint library with overwriting version on library with 5000+ documents
