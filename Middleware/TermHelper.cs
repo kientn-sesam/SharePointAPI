@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Web;
+using SharePointAPI.Models;
 
 namespace SharePointAPI.Middleware
 {
@@ -44,6 +45,19 @@ namespace SharePointAPI.Middleware
                 _resultTerm = _termCollection.First().Id.ToString();
 
             return _resultTerm;
+
+        }
+
+        public static TermModel Term(Term term)
+        {
+            List<Lbl> labels = new List<Lbl>();
+            LabelCollection labelCollection = term.Labels;
+            foreach (var label in labelCollection)
+            {
+                labels.Add(new Lbl(){IsDefaultForLanguage = label.IsDefaultForLanguage, Language = label.Language, Value = label.Value});
+            }
+
+            return new TermModel{ Id = term.Id, Name = term.Name, Description = term.Description,Labels = labels };
 
         }
 

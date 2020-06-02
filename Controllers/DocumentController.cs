@@ -76,17 +76,17 @@ namespace SharePointAPI.Controllers
                 List list = cc.Web.Lists.GetById(listGuid);
                 cc.Load(list);
                 cc.ExecuteQuery();
-                Console.WriteLine(JsonConvert.SerializeObject(docs,Formatting.Indented));
+                
 
                 List<Metadata> fields = SharePointHelper.GetFields(cc, list);
                 for (int i = 0; i < docs.Length; i++)
                 {
-                    Console.WriteLine("------------------------------------------------------");
-                    Console.WriteLine("Updating:");
-                    Console.WriteLine(JsonConvert.SerializeObject(docs[i],Formatting.Indented));
+
+                    //Console.WriteLine(JsonConvert.SerializeObject(docs[i],Formatting.Indented));
                     string foldername = docs[i].foldername;
                     var inputFields = docs[i].fields;
                     var taxFields = docs[i].taxFields;
+                    Console.WriteLine("Updating:" + foldername);
 
 
                     Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
@@ -114,6 +114,10 @@ namespace SharePointAPI.Controllers
                             if (field.TypeAsString.Equals("User"))
                             {
                                 int uid = SharePointHelper.GetUserId(cc, fieldValue);
+                                if (uid == 0)
+                                {
+                                    continue;
+                                }
                                 item[inputField.Key] = new FieldUserValue{LookupId = uid};
                             }
                             //endre hard koding
@@ -145,10 +149,21 @@ namespace SharePointAPI.Controllers
                             item.Update();
                         }
                     }
-                    
-                    await cc.ExecuteQueryAsync();
-                    Console.WriteLine("updated: " + foldername);
-                    Console.WriteLine("------------------------------------------------------");
+                    try
+                    {
+                        
+                        await cc.ExecuteQueryAsync();
+                        Console.WriteLine("updated: " + foldername);
+                        Console.WriteLine("------------------------------------------------------");
+                        
+                    }
+                    catch (System.Exception e)
+                    {
+                         _logger.LogError("Failed to update metadata.");
+                        Console.WriteLine(e);
+                        continue;
+                        
+                    }
 
                     if (taxFields.Count > 0)
                     {
@@ -157,6 +172,10 @@ namespace SharePointAPI.Controllers
                         {
                             var inputField = taxFields.ElementAt(t);
                             var fieldValue = inputField.Value;
+                            if (string.IsNullOrEmpty(fieldValue))
+                            {
+                                continue;
+                            }
                             
                             var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
                             cc.Load(field);
@@ -176,7 +195,18 @@ namespace SharePointAPI.Controllers
                             taxKeywordField.SetFieldValueByValue(item, termValue);
                             taxKeywordField.Update();
                         }
-                        await cc.ExecuteQueryAsync();
+                        try
+                        {
+                            
+                            await cc.ExecuteQueryAsync();
+                        }
+                        catch (System.Exception e)
+                        {
+                            
+                            _logger.LogError("Failed to update taxonomy metadata.");
+                            Console.WriteLine(e);
+                            continue;
+                        }
                         
                     }
 
@@ -987,22 +1017,20 @@ namespace SharePointAPI.Controllers
             //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
             
             string url = _baseurl + "sites/" + sitename;
+            Console.WriteLine(url);
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                Console.WriteLine(_baseurl);
-                //Guid listGuid = new Guid(listname);
-                //List list = cc.Web.Lists.GetById(listGuid);
-                //var lists = cc.Web.Lists;
-                //cc.Load(lists);
-                //cc.ExecuteQuery();
+                Console.WriteLine("list: " + listname);
+                cc.RequestTimeout = -1;
+
                 List list = cc.Web.Lists.GetByTitle(listname);
                 cc.ExecuteQuery();
                 CamlQuery camlQuery = new CamlQuery();
                 camlQuery.ViewXml = "<View Scope='RecursiveAll'><RowLimit>5000</RowLimit></View>";
                 
 
-                List<ListItem> items = new List<ListItem>();
+                List<Dictionary<string, object>> SPDocs = new List<Dictionary<string, object>>();
                 //List<string> fieldNames = SharePointHelper.GetVisibleFieldNames(cc, list);
                 do
                 {
@@ -1011,55 +1039,17 @@ namespace SharePointAPI.Controllers
                     await cc.ExecuteQueryAsync();
 
                     //Adding the current set of ListItems in our single buffer
-                    items.AddRange(listItemCollection);
+                    foreach (var listitem in listItemCollection)
+                    {
+                        SPDocs.Add(listitem.FieldValues);
+                        
+                    }
                     //Reset the current pagination info
                     camlQuery.ListItemCollectionPosition = listItemCollection.ListItemCollectionPosition;
-
+                    
                 } while (camlQuery.ListItemCollectionPosition != null);
-                
-                //var root = list.RootFolder;
-                //cc.Load(root, 
-                //    r => r.Folders.Include(
-                //        folder => folder.ProgID,
-                //        folder => folder.Name,
-                //        files => files.Files.Include(
-                //            file => file.Name,
-                //            file => file.LinkingUri,
-                //            file => file.ListItemAllFields
-                //        )
-                //    ),
-                //    r => r.Files.Include(
-                //        file => file.Name,
-                //        file => file.LinkingUri,
-                //        file => file.ListItemAllFields
-                //        )
-                //    );
-                //await cc.ExecuteQueryAsync();
-                
 
-                List<JObject> SPDocs = new List<JObject>();
-                //if (root.Files.Count > 0)
-                //{
-                //    var files = root.Files;
-//
-                //    SPDocs.AddRange(SharePointHelper.GetDocuments(cc, files, null));
-                //}
-                //if(root.Folders.Count > 0)
-                //{
-                //    FolderCollection folders = root.Folders;
-                //    for (int fs = 0; fs < folders.Count; fs++)
-                //    {
-                //        FileCollection files = folders[fs].Files;
-                //        string foldername = folders[fs].Name;
-                //        
-                //        // Skip unecessary folder
-                //        if(string.IsNullOrEmpty(folders[fs].ProgID)){
-                //            continue;
-                //        }
-                //        SPDocs.AddRange(SharePointHelper.GetDocuments(cc, files, foldername));
-                //    }
-                //}
-
+                
 
                 return new OkObjectResult(SPDocs);
             }
@@ -1209,7 +1199,6 @@ namespace SharePointAPI.Controllers
                                 }
                             
 
-                                items.Remove(item);
                             }
                         }
                     }

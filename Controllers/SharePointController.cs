@@ -58,15 +58,16 @@ namespace SharePointAPI.Controllers
         [Consumes("application/json")]
 
         /// <summary>
-        /// Create a new doc
+        /// get all documents in library
+        /// 
+        /// NB! This endpoint does not support 5000+ entities. 
         /// </summary>
         /// <remarks>
         /// Sample request:
         ///
         ///     GET /api/sharepoint/documents?site=<sitename>&list=<listname>
-        ///     
+
         /// </remarks>
-        /// <param name="param">New document parameters</param>
         /// <returns></returns>
         public async Task<IActionResult> Documents([FromQuery(Name = "site")] string sitename,[FromQuery(Name = "list")] string listname)
         {
@@ -76,12 +77,7 @@ namespace SharePointAPI.Controllers
             using(ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
             try
             {
-                Console.WriteLine(_baseurl);
-                //Guid listGuid = new Guid(listname);
-                //List list = cc.Web.Lists.GetById(listGuid);
-                //var lists = cc.Web.Lists;
-                //cc.Load(lists);
-                //cc.ExecuteQuery();
+
                 List list = cc.Web.Lists.GetByTitle(listname);
                 
                 //List<string> fieldNames = SharePointHelper.GetVisibleFieldNames(cc, list);
@@ -147,7 +143,7 @@ namespace SharePointAPI.Controllers
         [Consumes("application/json")]
 
         /// <summary>
-        /// Create a new doc
+        /// List of libraries from a SharePoint site
         /// </summary>
         /// <remarks>
         /// Sample request:
@@ -188,7 +184,7 @@ namespace SharePointAPI.Controllers
         [Consumes("application/json")]
 
         /// <summary>
-        /// Create a new doc
+        /// List of folders/documentsets from a sharepoint library
         /// </summary>
         /// <remarks>
         /// Sample request:
@@ -223,65 +219,15 @@ namespace SharePointAPI.Controllers
                 await cc.ExecuteQueryAsync();
                 
 
-                List<JObject> SPDocs = new List<JObject>();
+                List<Dictionary<string, object>> SPDocs = new List<Dictionary<string, object>>();
 
-                if(root.Folders.Count > 0)
+                var folders = root.Folders;
+                foreach (var folder in folders)
                 {
-                    FolderCollection folders = root.Folders;
-                    for (int fs = 0; fs < folders.Count; fs++)
-                    {
-                        string foldername = folders[fs].Name;
-                        if(foldername.Equals("Forms"))
-                            continue;
-                        var json = new JObject();
-                        json.Add(new JProperty("foldername", foldername));
-                        ListItem item = folders[fs].ListItemAllFields;
-                        foreach (KeyValuePair<string, Object> field in item.FieldValues)
-                        {
-                            if (field.Value != null)
-                            {
-                                
-                                Regex rg = new Regex(@"Microsoft\.SharePoint\.Client\..*");
-                                var match = rg.Match(field.Value.ToString());
-                                //Check Taxfields
-                                if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.FieldUserValue"))
-                                {
-                                    FieldUserValue fieldUserValue = field.Value as FieldUserValue;
-                                    var jsonUser = new JObject();
-                                    jsonUser.Add(new JProperty("Email", fieldUserValue.Email));
-                                    jsonUser.Add(new JProperty("LookupId", fieldUserValue.LookupId));
-                                    jsonUser.Add(new JProperty("LookupValue", fieldUserValue.LookupValue));
-                                    json.Add(new JProperty(field.Key, jsonUser));
-                                }
-                                else if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.FieldLookupValue"))
-                                {
-                                    FieldLookupValue fieldLookupValue = field.Value as FieldLookupValue;
-                                    var jsonfieldLookup = new JObject();
-                                    jsonfieldLookup.Add(new JProperty("LookupID", fieldLookupValue.LookupId));
-                                    jsonfieldLookup.Add(new JProperty("LookupValue", fieldLookupValue.LookupValue));
-                                    json.Add(new JProperty(field.Key, jsonfieldLookup));
-                                }
-                                else if (match.Success && field.Value.ToString().Equals("Microsoft.SharePoint.Client.Taxonomy.TaxonomyFieldValue"))
-                                {
-                                    TaxonomyFieldValue taxonomyFieldValue = field.Value as TaxonomyFieldValue;
-                                    var jsonTaxField = new JObject();
-                                    jsonTaxField.Add(new JProperty("WssId", taxonomyFieldValue.WssId));
-                                    jsonTaxField.Add(new JProperty("TermGuid", taxonomyFieldValue.TermGuid));
-                                    jsonTaxField.Add(new JProperty("Label", taxonomyFieldValue.Label));
-                                    json.Add(new JProperty(field.Key, jsonTaxField));
-                                }
-                                else
-                                {
-                                    json.Add(new JProperty(field.Key, field.Value.ToString()));
-                                }
-                            }
-
-                            
-
-                        }
-
-                        SPDocs.Add(json);
-                    }
+                    if (folder.Name.Equals("Forms"))
+                        continue;
+                    else                    
+                        SPDocs.Add(folder.ListItemAllFields.FieldValues);
                 }
 
 
@@ -301,7 +247,7 @@ namespace SharePointAPI.Controllers
         [Consumes("application/json")]
 
         /// <summary>
-        /// Create a new doc
+        /// documents with metadata
         /// </summary>
         /// <remarks>
         /// Sample request:
@@ -309,8 +255,6 @@ namespace SharePointAPI.Controllers
         ///     GET /api/sharepoint/documentswithfields?site=<sitename>&list=<listname>
         ///     
         /// </remarks>
-        /// <param name="param">New document parameters</param>
-        /// <returns></returns>
         public async Task<IActionResult> DocumentsWithFields([FromQuery(Name = "site")] string sitename,[FromQuery(Name = "list")] string listname)
         {
             //List<SharePointDoc> SPDocs = new List<SharePointDoc>();
@@ -343,6 +287,15 @@ namespace SharePointAPI.Controllers
         }
 
         [HttpGet]
+        /// <summary>
+        /// List of available fields on specific library
+        /// </summary>
+        /// <remarks>
+        /// Sample request:
+        ///
+        ///     GET /api/sharepoint/fields?site=<sitename>&list=<listname>
+        ///     
+        /// </remarks>
         public List<Metadata> Fields([FromQuery(Name = "site")] string site,[FromQuery(Name = "list")] string listname)
         {
 
@@ -934,12 +887,12 @@ namespace SharePointAPI.Controllers
 
 
         /// <summary>
-        /// Create a new doc
+        /// Upload file to sharepoint
         /// </summary>
         /// <remarks>
         /// Sample request:
         ///
-        ///     POST /api/sharepoint/document
+        ///     POST /api/sharepoint/UploadToSharePoint
         ///     {
         ///         "list":"Dokumentasjon",
         ///         "file_url":"https://www.bring.no/radgivning/sende-noe/adressetjenester/postnummer/_/attachment/download/c0300459-6555-4833-b42c-4b16496b7cc0:1127fa77303a0347c45d609069d1483b429a36c0/Postnummerregister-Excel.xlsx",
@@ -984,19 +937,11 @@ namespace SharePointAPI.Controllers
 
         }
         /// <summary>
-        /// Create a new doc
+        /// Array of foldernames
         /// </summary>
         /// <remarks>
         /// Sample request:
-        ///
-        ///     POST /api/sharepoint/document
-        ///     {
-        ///         "list":"Dokumentasjon",
-        ///         
-        ///         "foldername":"Landskaps og miljøplan",
-        ///         "site": "sporaevk",
-        ///         
-        ///     }
+        /// 
         /// </remarks>
         [HttpGet]
         [Produces("application/json")]
