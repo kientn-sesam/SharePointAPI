@@ -4,27 +4,32 @@ Description:
 
 Endpoints:
 * Get all documents in library (This endpoint does not support 5000+ entities).
-    GET /api/sharepoint/documents?site=<sitename>&list=<listname>
+    ```GET /api/sharepoint/documents?site=<sitename>&list=<listname>```
 * List of libraries from a SharePoint site
-    GET /api/sharepoint/lists?site=<sitename>
+    ```GET /api/sharepoint/lists?site=<sitename>```
 * List of folders/documentsets from a sharepoint library
-    GET /api/sharepoint/folders?site=<sitename>&list=<listname>
+    ```GET /api/sharepoint/folders?site=<sitename>&list=<listname>```
 * documents with metadata from sharepoint library
-    GET /api/sharepoint/documentswithfields?site=<sitename>&list=<listname>
+    ```GET /api/sharepoint/documentswithfields?site=<sitename>&list=<listname>```
 * List of available fields on specific library
-    GET /api/sharepoint/fields?site=<sitename>&list=<listname>
+    ```GET /api/sharepoint/fields?site=<sitename>&list=<listname>```
 * Return user id
-    GET /api/sharepoint/userid?name=<email>
+    ```GET /api/sharepoint/userid?name=<email>```
 * Array of folder names
-    GET /api/sharepoint/foldernames?site=<sitename>&list=<listname>
+    ```GET /api/sharepoint/foldernames?site=<sitename>&list=<listname>```
 * Create new document
+    ```
     POST /api/sharepoint/newdocument
+    ```
 * Delete a site
+    ```
     DELETE /api/sharepoint/deletesite
     {
        "site": <"site name">
     }
+    ```
 * Create documentset
+    ```
     POST /api/sharepoint/documentset
     {
         "site": <"site name">,
@@ -32,7 +37,9 @@ Endpoints:
         "sitecontent" : <"site content name">,
         "documentset" : <"name of the new document set">,
      } 
+     ```
 * SystemUpdate metadata
+    ```
     POST /api/sharepoint/updatemetadata
     {
     	"ListName":"Documents",
@@ -46,6 +53,7 @@ Endpoints:
     
     	}
     }  
+    ```
 * Upload file to sharepoint
     ```
     POST /api/sharepoint/UploadToSharePoint
@@ -75,15 +83,25 @@ Endpoints:
     POST /api/sharepoint/document
     ```
 * Enrich metadata on documentset only
+    ```
     POST /api/document/folderenrichment
+    ```
 * Enrich sharepoint library with overwriting version on library with 5000+ documents
+    ```
     POST /api/document/updateoverwriteversion
+    ```
 * Enrich sharepoint library with 5000+ documents
+    ```
     POST /api/document/UpdateWithoutVersioning
+    ```
 * Migration on library with versioning (used for existing library with 5000+)
+    ```
     POST /api/document/MigrationWithVersioning
+    ```
 * List of documents (5000+)
+    ```
     GET /api/document/all
+    ```
 
 
 
