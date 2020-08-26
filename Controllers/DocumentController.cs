@@ -91,6 +91,8 @@ namespace SharePointAPI.Controllers
 
                     Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
                     ListItem item = folder.ListItemAllFields;
+                    cc.Load(item);
+                    await cc.ExecuteQueryAsync();
 
                     Regex regex = new Regex(@"~t.*");
                     DateTime dtMin = new DateTime(1900,1,1);
@@ -194,19 +196,22 @@ namespace SharePointAPI.Controllers
                             
                             taxKeywordField.SetFieldValueByValue(item, termValue);
                             taxKeywordField.Update();
-                        }
-                        try
-                        {
+                            item.Update();
                             
-                            await cc.ExecuteQueryAsync();
+                            try
+                            {
+                                
+                                await cc.ExecuteQueryAsync();
+                            }
+                            catch (System.Exception e)
+                            {
+                                
+                                _logger.LogError("Failed to update taxonomy metadata.");
+                                Console.WriteLine(e);
+                                continue;
+                            }
                         }
-                        catch (System.Exception e)
-                        {
-                            
-                            _logger.LogError("Failed to update taxonomy metadata.");
-                            Console.WriteLine(e);
-                            continue;
-                        }
+
                         
                     }
 
@@ -567,6 +572,442 @@ namespace SharePointAPI.Controllers
         [Produces("application/json")]
         [Consumes("application/json")]
         /// <summary>
+        ///     Migration library for big files
+        ///     Using SMB2Client to fetch files from smb file server.
+        ///     Adds metadata for normal and taxonomy fields
+        ///     [ 
+        ///         {
+        ///           "fields": {
+        ///             "Created_x0020_By": "",
+        ///             "eDocsRNLinjer": null,
+        ///             "eDocsSaksbehandler": "RXINDEX IMPORT",
+        ///             ....
+        ///           },
+        ///           "file_url": "//.../...",
+        ///           "filename": "<string>",
+        ///           "foldername": "<string>",
+        ///           "list": "<guid>",
+        ///           "site": "<site name>",
+        ///           "sitecontent": "<site content name for creating document set>"
+        ///         }
+        ///     ]
+        /// </summary>
+        /// <param name="docs"></param>
+        /// <returns></returns>
+        public async Task<IActionResult> MigrationXLFiles([FromBody] DocumentModel[] docs)
+        {
+            if (docs.Length == 0)
+            {
+                return new NoContentResult();
+            }
+
+            SMB2Client client = new SMB2Client();
+            
+            string site = docs[0].site;
+            string url = _baseurl + "teams/" + site;
+            Console.WriteLine(url);
+            string listname = docs[0].list;
+            //Guid listGuid = new Guid(listname);
+
+            using (ClientContext cc = AuthHelper.GetClientContextForUsernameAndPassword(url, _username, _password))
+            try
+            {
+                SMBCredential SMBCredential = new SMBCredential(){ 
+                    username = Environment.GetEnvironmentVariable("smb_username"), 
+                    password = Environment.GetEnvironmentVariable("smb_password"), 
+                    domain = Environment.GetEnvironmentVariable("domain"),
+                    ipaddr = Environment.GetEnvironmentVariable("ipaddr"),
+                    share = Environment.GetEnvironmentVariable("share"),
+                };
+                
+                var serverAddress = System.Net.IPAddress.Parse(SMBCredential.ipaddr);
+                bool success = client.Connect(serverAddress, SMBTransportType.DirectTCPTransport);
+
+                NTStatus nts = client.Login(SMBCredential.domain, SMBCredential.username, SMBCredential.password);
+                ISMBFileStore fileStore = client.TreeConnect(SMBCredential.share, out nts);
+   
+                List list = cc.Web.Lists.GetByTitle(listname);
+                cc.Load(list.RootFolder, p => p.ServerRelativeUrl);
+
+                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
+
+                for (int i = 0; i < docs.Length; i++)
+                {
+                    string filename = docs[i].filename;
+                    string file_url = docs[i].file_url;
+                    var inputFields = docs[i].fields;
+                    var taxFields = docs[i].taxFields;
+                    var taxListFields = docs[i].taxListFields;
+                    var doc = docs[i];
+
+                    Microsoft.SharePoint.Client.File uploadFile = null;
+            ClientResult<long> bytesUploaded = null;
+            //SMBLibrary.NTStatus actionStatus;
+            FileCreationInformation newFile = new FileCreationInformation();
+            NTStatus status = nts;
+        
+            object handle;
+            FileStatus fileStatus;
+            string tmpfile = System.IO.Path.GetTempFileName();
+            status = fileStore.CreateFile(out handle, out fileStatus, doc.file_url, AccessMask.GENERIC_READ, 0, ShareAccess.Read, CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
+            if (status != NTStatus.STATUS_SUCCESS)
+            {
+                Console.WriteLine(status);
+                return null;
+            }
+            else{
+                //string uniqueFileName = String.Empty;
+                int blockSize = 8000000; // 8 MB
+                long fileSize;
+                Guid uploadId = Guid.NewGuid();
+                
+                byte[] buf;
+                var fs = new System.IO.FileStream(tmpfile, System.IO.FileMode.OpenOrCreate);
+                var bw = new System.IO.BinaryWriter(fs);
+                int bufsz = 64 * 1000;
+                int j = 0;
+                
+                do{
+                    status = fileStore.ReadFile(out buf, handle, i * bufsz, bufsz);
+                    if (status == NTStatus.STATUS_SUCCESS)
+                    {
+                        int n = buf.GetLength(0);
+                        
+                        bw.Write(buf, 0, n);
+                        if (n < bufsz) break;
+                        i++;
+                    }
+                
+                }
+                while (status != NTStatus.STATUS_END_OF_FILE && j < 1000);
+                
+                if (status == NTStatus.STATUS_SUCCESS)
+                {
+                    fileStore.CloseFile(handle);
+                    bw.Flush();
+                    fs.Close();
+                    //fs = System.IO.File.OpenRead(tmpfile);
+                    
+                    //byte[] fileBytes = new byte[fs.Length];
+                    //fs.Read(fileBytes, 0, fileBytes.Length);
+                    try
+                    {
+                        
+                        fs = System.IO.File.Open(tmpfile, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
+                        fileSize = fs.Length;
+                        //uniqueFileName = System.IO.Path.GetFileName(fs.Name);
+                        using (System.IO.BinaryReader br = new System.IO.BinaryReader(fs))
+                        {
+                            byte[] buffer = new byte[blockSize];
+                            byte[] lastBuffer = null;
+                            long fileoffset = 0;
+                            long totalBytesRead = 0;
+                            int bytesRead;
+                            bool first = true;
+                            bool last = false;
+
+                            while ((bytesRead = br.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                totalBytesRead = totalBytesRead + bytesRead;
+                                if (totalBytesRead >= fileSize)
+                                {
+                                    last = true;
+                                    lastBuffer = new byte[bytesRead];
+                                    Array.Copy(buffer, 0, lastBuffer, 0 , bytesRead);
+                                }
+
+                                if (first)
+                                {
+                                    using (System.IO.MemoryStream contentStream = new System.IO.MemoryStream())
+                                    {
+                                        newFile.ContentStream = contentStream;
+                                        newFile.Url = doc.filename;
+                                        newFile.Overwrite = true;
+                                        
+                                        if (doc.foldername == null)
+                                        {
+                                            uploadFile = list.RootFolder.Files.Add(newFile);
+                                            
+                                        }
+                                        else
+                                        {
+                                            string foldername = doc.foldername;
+                                            string sitecontent = doc.sitecontent;
+                                            
+                                            //Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+
+                                            Folder folder = SharePointHelper.GetFolder(cc, list, foldername);
+                                            if (folder == null){
+                                                if(doc.taxFields != null){
+                                                    folder = SharePointHelper.CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, doc.fields, fields, doc.taxFields);
+                                                }
+                                                else
+                                                {
+                                                    folder = SharePointHelper.CreateFolder(cc, list, sitecontent, foldername, doc.fields, fields);
+                                                }
+
+                                            }
+                                        }
+
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(buffer))
+                                        {
+                                            bytesUploaded = uploadFile.StartUpload(uploadId, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
+                                        }
+
+                                        first = false;
+                                    }
+                                }
+                                else
+                                {
+                                    string SRUrl = list.RootFolder.ServerRelativeUrl + System.IO.Path.AltDirectorySeparatorChar + filename;
+                                    uploadFile = cc.Web.GetFileByServerRelativeUrl(SRUrl);
+                                    if (last)
+                                    {
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(lastBuffer))
+                                        {
+                                            uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, s);
+                                            await cc.ExecuteQueryAsync();
+                                            
+
+                                        }
+                                    }
+                                    else
+                                    {
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(buffer))
+                                        {
+                                            bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
+                                        }
+                                        
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                    catch{
+                        System.IO.File.Delete(tmpfile);
+                        throw;
+                    }
+                    finally 
+                    {
+                        System.IO.File.Delete(tmpfile);
+                        if (fs != null)
+                        {
+                            fs.Dispose();
+                        }
+                    }
+
+                    
+                }
+                else
+                {
+                    System.IO.File.Delete(tmpfile);
+                    return null;
+                }
+         
+
+                    //File uploadFile = SharePointHelper.GetBigSharePointFile(file_url, filename, SMBCredential, client, nts, fileStore, list, cc, doc, fields);
+
+                    ListItem item = uploadFile.ListItemAllFields;
+                    cc.Load(item);
+                    cc.ExecuteQuery();
+                    item["Title"] = filename;
+
+
+                    DateTime dtMin = new DateTime(1900,1,1);
+                    Regex regex = new Regex(@"~t.*");
+                    var listItemFormUpdateValueColl = new List <ListItemFormUpdateValue>();
+                    if (inputFields != null)
+                    {    
+                        foreach (KeyValuePair<string, string> inputField in inputFields)
+                        {
+                            if (inputField.Value == null || inputField.Value == "" || inputField.Key.Equals("Modified") || inputField.Key.Equals("SPORResponsibleRetired"))
+                            {
+                                continue;
+                            }
+                            
+
+                            string fieldValue = inputField.Value;
+                            Match match = regex.Match(fieldValue);
+                            
+                            Metadata field = fields.Find(x => x.InternalName.Equals(inputField.Key));
+                            if (field.TypeAsString.Equals("User"))
+                            {
+                                int uid = SharePointHelper.GetUserId(cc, fieldValue);
+
+                                if(uid == 0){
+                                    //user does not exist in AD. 
+                                    //item["SPORResponsibleRetired"] = fieldValue;
+                                    continue;
+                                }
+                                else
+                                {
+                                    item[inputField.Key] = new FieldUserValue{LookupId = uid};
+                                    
+                                }
+                            }
+                            //endre hard koding
+                            else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
+                            {
+                                StringBuilder sb = new StringBuilder("i:0#.f|membership|");
+                                sb.Append(fieldValue);
+                                item[inputField.Key] = sb;
+                            }
+                            else if(match.Success)
+                            {
+                                fieldValue = fieldValue.Replace("~t","");
+                                if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                {
+                                    if(dtMin <= dt){
+                                        item[inputField.Key] = dt;
+                                    }
+                                    else
+                                    {
+                                        continue;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                item[inputField.Key] = fieldValue;
+
+                            }
+
+                            
+                            item.Update();
+                            
+                            
+                        }
+                    }
+                    cc.ExecuteQuery();
+                    if (taxFields != null)
+                    {
+                        var clientRuntimeContext = item.Context;
+                        for (int t = 0; t < taxFields.Count; t++)
+                        {
+                            var inputField = taxFields.ElementAt(t);
+                            var fieldValue = inputField.Value;
+                            if (fieldValue == null || fieldValue.Equals(""))
+                            {
+                                continue;
+                            }
+                            
+                            var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            cc.Load(field);
+                            cc.ExecuteQuery();
+                            var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+
+                            Guid _id = taxKeywordField.TermSetId;
+                            string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                            TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                            {
+                                Label = fieldValue.ToString(),
+                                TermGuid = _termID,
+                            };
+                            
+                            
+                            taxKeywordField.SetFieldValueByValue(item, termValue);
+                            taxKeywordField.Update();
+                        }
+                        
+                    }
+                    if (taxListFields != null)
+                    {
+                        var clientRuntimeContext = item.Context;
+                        for (int t = 0; t < taxListFields.Count; t++)
+                        {
+                            var inputField = taxListFields.ElementAt(t);
+                            var fieldListValue = inputFields.Values;
+
+                            if (fieldListValue == null)
+                            {
+                                continue;
+                            }
+                            
+                            var field = list.Fields.GetByInternalNameOrTitle(inputField.Key);
+                            cc.Load(field);
+                            cc.ExecuteQuery();
+
+                            var taxKeywordField = clientRuntimeContext.CastTo<TaxonomyField>(field);
+                            Guid _id = taxKeywordField.TermSetId;
+                            foreach (var fieldValue in fieldListValue)
+                            {
+                                string _termID = TermHelper.GetTermIdByName(cc, fieldValue, _id);
+
+                                TaxonomyFieldValue termValue = new TaxonomyFieldValue()
+                                {
+                                    Label = fieldValue.ToString(),
+                                    TermGuid = _termID,
+                                };
+                                
+                                taxKeywordField.SetFieldValueByValue(item, termValue);
+                                taxKeywordField.Update();
+                                
+                            }
+
+
+                            
+                        }
+                    }
+
+                    //Modified needs to be updated last
+                    string strModified = inputFields["Modified"];
+                    Match matchModified = regex.Match(strModified);
+
+
+                    if(matchModified.Success)
+                    {
+                        strModified = strModified.Replace("~t","");
+                        
+
+                        if(DateTime.TryParse(strModified, out DateTime dt))
+                        {
+                                item["Modified"] = dt;
+
+                        }
+                        item.Update();
+                    }
+                    
+                    
+                    try
+                    {
+                        await cc.ExecuteQueryAsync();
+                        Console.WriteLine("Successfully uploaded " + uploadFile.Name + " and updated metadata");
+                    }
+                    catch (System.Exception e)
+                    {
+                        _logger.LogError("Failed to update metadata.");
+                        Console.WriteLine(e);
+                        continue;
+                    }
+
+
+                }
+            }}
+            catch (System.Exception)
+            {
+                throw;
+            }
+            finally
+            {
+                client.Logoff();
+                client.Disconnect();
+            }
+
+            return new NoContentResult();
+        }
+
+        [HttpPost]
+        [Produces("application/json")]
+        [Consumes("application/json")]
+        /// <summary>
         ///     Migration library with versioning.
         ///     Using SMB2Client to fetch files from smb file server.
         ///     Adds metadata for normal and taxonomy fields
@@ -871,6 +1312,11 @@ namespace SharePointAPI.Controllers
         /// <returns></returns>
         public async Task<IActionResult> test([FromBody] DocumentModel[] docs)
         {
+            int blockSize = 8000000; // 8 MB
+            string fileName = "aen-per-oddvar.mp4",uniqueFileName = String.Empty;
+            long fileSize;
+            File uploadFile = null;
+            Guid uploadId = Guid.NewGuid();
             if (docs.Length == 0)
             {
                 return null;
@@ -884,108 +1330,99 @@ namespace SharePointAPI.Controllers
             try
             {
                 List list = cc.Web.Lists.GetByTitle(listname);
-                List<Metadata> fields = SharePointHelper.GetFields(cc, list);
+                cc.Load(list.RootFolder, p => p.ServerRelativeUrl);
+
                 for (int i = 0; i < docs.Length; i++)
                 {
-                    string filename = docs[i].filename;
+                    
                     string file_url = docs[i].file_url;
                     string foldername = docs[i].foldername;
-                    var inputFields = docs[i].fields;
-                    var taxFields = docs[i].taxFields;
+                    System.IO.FileStream fs = null;
+                    // Use large file upload approach
+                    ClientResult<long> bytesUploaded = null;
                     
-
-                    //string eDocsDokumentnavn = inputFields["eDocsDokumentnavn"];
-                    var cquery = new CamlQuery();
-                    cquery.ViewXml = string.Format(
-                        @"<View><Query><Where><Eq><FieldRef Name='ID' /><Value Type='Number'>{0}</Value></Eq></Where></Query></View>", 5);
-
-                    var listitems = list.GetItems(cquery);
-                    cc.Load(listitems);
-                    cc.Load(listitems, items => items.Include(
-                        item => item.File
-                    ));
-                    await cc.ExecuteQueryAsync();
-                    
-
-                    Regex regex = new Regex(@"~t.*");
-                    DateTime dtMin = new DateTime(1900,1,1);
-                    if (listitems.Count > 0)
-                    {
-                        ListItem item = listitems[0];
-                        var file = item.File;
-
-                        Console.WriteLine(file.CheckOutType.ToString());
-                        if (file.CheckOutType == CheckOutType.None)
+                        fs = System.IO.File.Open(fileName, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite);
+                        fileSize = fs.Length;
+                        uniqueFileName = System.IO.Path.GetFileName(fs.Name);
+                        using (System.IO.BinaryReader br = new System.IO.BinaryReader(fs))
                         {
-                            item.File.CheckOut();
-                            cc.ExecuteQuery();
-                        }
+                            byte[] buffer = new byte[blockSize];
+                            byte[] lastBuffer = null;
+                            long fileoffset = 0;
+                            long totalBytesRead = 0;
+                            int bytesRead;
+                            bool first = true;
+                            bool last = false;
 
-                        if (inputFields != null)
-                        {
-                            foreach (KeyValuePair<string, string> inputField in inputFields)
+                            // Read data from filesystem in blocks
+                            while ((bytesRead = br.Read(buffer, 0, buffer.Length)) > 0)
                             {
-
-                                if (inputField.Value == null || inputField.Value == "")
+                                totalBytesRead = totalBytesRead + bytesRead;
+                                if (totalBytesRead >= fileSize)
                                 {
-                                    continue;
+                                    last = true;
+                                    // Copy to a new buffer that has the correct size
+                                    lastBuffer = new byte[bytesRead];
+                                    Array.Copy(buffer, 0, lastBuffer, 0, bytesRead);
                                 }
 
-                                string fieldValue = inputField.Value;
-                                Match match = regex.Match(fieldValue);
-                                
-
-                                Metadata field = fields.Find(x => x.InternalName.Equals(inputField.Key));
-                                if (field.TypeAsString.Equals("User"))
+                                if (first)
                                 {
-                                    int uid = SharePointHelper.GetUserId(cc, fieldValue);
-                                    item[inputField.Key] = new FieldUserValue{LookupId = uid};
-                                }
-                                //endre hard koding
-                                else if (inputField.Key.Equals("Modified_x0020_By") || inputField.Key.Equals("Created_x0020_By") || inputField.Key.Equals("Dokumentansvarlig"))
-                                {
-                                    string user = "i:0#.f|membership|" + fieldValue;
-                                    item[inputField.Key] = user;
-                                }
-                                else if(match.Success)
-                                {
-                                    fieldValue = fieldValue.Replace("~t","");
-                                    if(DateTime.TryParse(fieldValue, out DateTime dt))
+                                    using(System.IO.MemoryStream contentStream = new System.IO.MemoryStream())
                                     {
-                                        if(dtMin <= dt){
-                                            item[inputField.Key] = dt;
-                                            _logger.LogInformation("Set field " + inputField.Key + "to " + dt);
-                                        }
-                                        else
+                                        FileCreationInformation fileInfo = new FileCreationInformation();
+                                        fileInfo.ContentStream = contentStream;
+                                        fileInfo.Url = uniqueFileName;
+                                        fileInfo.Overwrite = true;
+                                        uploadFile = list.RootFolder.Files.Add(fileInfo);
+
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(buffer))
                                         {
-                                            continue;
+                                            bytesUploaded = uploadFile.StartUpload(uploadId, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
                                         }
+
+                                        first = false;
                                     }
                                 }
                                 else
                                 {
-                                    item[inputField.Key] = fieldValue;
-                                    _logger.LogInformation("Set " + inputField.Key + " to " + fieldValue);
-                                    //item.Update();
+                                    uploadFile = cc.Web.GetFileByServerRelativeUrl(list.RootFolder.ServerRelativeUrl + System.IO.Path.AltDirectorySeparatorChar + uniqueFileName);
+
+                                    if (last)
+                                    {
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(lastBuffer))
+                                        {
+                                            uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, s);
+                                            await cc.ExecuteQueryAsync();
+                                        }
+                                    }
+                                    else
+                                    {
+                                        using (System.IO.MemoryStream s = new System.IO.MemoryStream(buffer))
+                                        {
+                                            bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
+                                        }
+                                        
+                                    }
                                 }
 
-                                item.Update();
                             }
                         }
-                        item.File.CheckIn(string.Empty, CheckinType.OverwriteCheckIn);
-                        
-                        await cc.ExecuteQueryAsync();
-                    
 
-                    }
-                    else
-                    {
-                        //_logger.LogInformation("file not found: " + eDocsDokumentnavn);
-                        continue;
-                    }
+                        if (fs != null)
+                        {
+                            fs.Dispose();
+                        }
+
                     
                 }
-                
+        
             }
             catch (System.Exception)
             {
@@ -994,7 +1431,13 @@ namespace SharePointAPI.Controllers
             }
 
             return new NoContentResult();
-        }
+}
+                
+
+
+
+                                        
+
 
         [HttpGet]
         [Produces("application/json")]

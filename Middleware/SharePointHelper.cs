@@ -626,6 +626,181 @@ namespace SharePointAPI.Middleware
                 
 
         }
+        public static Microsoft.SharePoint.Client.File GetBigSharePointFile(string fileurl, string filename, SMBCredential SMBCredential, SMB2Client client, NTStatus nts, ISMBFileStore fileStore, List list, ClientContext cc, DocumentModel doc, List<Metadata> fields)
+        {
+            Microsoft.SharePoint.Client.File uploadFile = null;
+            ClientResult<long> bytesUploaded = null;
+            //SMBLibrary.NTStatus actionStatus;
+            FileCreationInformation newFile = new FileCreationInformation();
+            NTStatus status = nts;
+        
+            object handle;
+            FileStatus fileStatus;
+            string tmpfile = Path.GetTempFileName();
+            status = fileStore.CreateFile(out handle, out fileStatus, fileurl, AccessMask.GENERIC_READ, 0, ShareAccess.Read, CreateDisposition.FILE_OPEN, CreateOptions.FILE_NON_DIRECTORY_FILE, null);
+            if (status != NTStatus.STATUS_SUCCESS)
+            {
+                Console.WriteLine(status);
+                return null;
+            }
+            else{
+                string uniqueFileName = String.Empty;
+                int blockSize = 8000000; // 8 MB
+                long fileSize;
+                Guid uploadId = Guid.NewGuid();
+                
+                byte[] buf;
+                var fs = new FileStream(tmpfile, FileMode.OpenOrCreate);
+                var bw = new BinaryWriter(fs);
+                int bufsz = 64 * 1000;
+                int i = 0;
+                
+                do{
+                    status = fileStore.ReadFile(out buf, handle, i * bufsz, bufsz);
+                    if (status == NTStatus.STATUS_SUCCESS)
+                    {
+                        int n = buf.GetLength(0);
+                        
+                        bw.Write(buf, 0, n);
+                        if (n < bufsz) break;
+                        i++;
+                    }
+                
+                }
+                while (status != NTStatus.STATUS_END_OF_FILE && i < 1000);
+                
+                if (status == NTStatus.STATUS_SUCCESS)
+                {
+                    fileStore.CloseFile(handle);
+                    bw.Flush();
+                    fs.Close();
+                    //fs = System.IO.File.OpenRead(tmpfile);
+                    
+                    //byte[] fileBytes = new byte[fs.Length];
+                    //fs.Read(fileBytes, 0, fileBytes.Length);
+                    try
+                    {
+                        
+                        fs = System.IO.File.Open(tmpfile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        fileSize = fs.Length;
+                        uniqueFileName = Path.GetFileName(fs.Name);
+                        using (BinaryReader br = new BinaryReader(fs))
+                        {
+                            byte[] buffer = new byte[blockSize];
+                            byte[] lastBuffer = null;
+                            long fileoffset = 0;
+                            long totalBytesRead = 0;
+                            int bytesRead;
+                            bool first = true;
+                            bool last = false;
+
+                            while ((bytesRead = br.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                totalBytesRead = totalBytesRead + bytesRead;
+                                if (totalBytesRead >= fileSize)
+                                {
+                                    last = true;
+                                    lastBuffer = new byte[bytesRead];
+                                    Array.Copy(buffer, 0, lastBuffer, 0 , bytesRead);
+                                }
+
+                                if (first)
+                                {
+                                    using (MemoryStream contentStream = new MemoryStream())
+                                    {
+                                        newFile.ContentStream = contentStream;
+                                        newFile.Url = uniqueFileName;
+                                        newFile.Overwrite = true;
+                                        
+                                        if (doc.foldername == null)
+                                        {
+                                            uploadFile = list.RootFolder.Files.Add(newFile);
+                                            
+                                        }
+                                        /*else
+                                        {
+                                            string foldername = doc.foldername;
+                                            string sitecontent = doc.sitecontent;
+                                            
+                                            //Folder folder = list.RootFolder.Folders.GetByUrl(foldername);
+
+                                            Folder folder = GetFolder(cc, list, foldername);
+                                            if (folder == null){
+                                                if(doc.taxFields != null){
+                                                    folder = CreateDocumentSetWithTaxonomy(cc, list, sitecontent, foldername, doc.fields, fields, doc.taxFields);
+                                                }
+                                                else
+                                                {
+                                                    folder = CreateFolder(cc, list, sitecontent, foldername, doc.fields, fields);
+                                                }
+
+                                            }
+                                        }*/
+
+                                        using (MemoryStream s = new MemoryStream(buffer))
+                                        {
+                                            bytesUploaded = uploadFile.StartUpload(uploadId, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
+                                        }
+
+                                        first = false;
+                                    }
+                                }
+                                else
+                                {
+                                    uploadFile = cc.Web.GetFileByServerRelativeUrl(list.RootFolder.ServerRelativeUrl + Path.AltDirectorySeparatorChar + uniqueFileName);
+                                    if (last)
+                                    {
+                                        using (MemoryStream s = new MemoryStream(lastBuffer))
+                                        {
+                                            uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, s);
+                                            cc.ExecuteQuery();
+                                            
+
+                                        }
+                                    }
+                                    else
+                                    {
+                                        using (MemoryStream s = new MemoryStream(buffer))
+                                        {
+                                            bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
+                                            cc.ExecuteQuery();
+
+                                            fileoffset = bytesUploaded.Value;
+                                        }
+                                        
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                    finally 
+                    {
+                        System.IO.File.Delete(tmpfile);
+                        if (fs != null)
+                        {
+                            fs.Dispose();
+                        }
+                    }
+
+                    
+                }
+                else
+                {
+                    System.IO.File.Delete(tmpfile);
+                    return null;
+                }
+                
+                return uploadFile;
+                
+                    
+            }
+            
+
+        }
         public static FileCreationInformation GetFileCreationInformation(string fileurl, string filename)
         {
             try
